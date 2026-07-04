@@ -1,12 +1,19 @@
-import { createClient } from "@supabase/supabase-js";
+const store: Record<string, any[]> = {};
 
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-if (!supabaseUrl || !supabaseKey) {
-  throw new Error(
-    "Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY environment variables"
-  );
-}
-
-export const supabase = createClient(supabaseUrl, supabaseKey);
+export const db = {
+  table(name: string) {
+    if (!store[name]) store[name] = [];
+    return store[name];
+  },
+  insert(table: string, row: any) {
+    if (!store[table]) store[table] = [];
+    store[table].push(row);
+    return row;
+  },
+  find(table: string, key: string, val: any) {
+    return (store[table] || []).filter((r: any) => r[key] === val);
+  },
+  findOne(table: string, key: string, val: any) {
+    return (store[table] || []).find((r: any) => r[key] === val) || null;
+  },
+};
