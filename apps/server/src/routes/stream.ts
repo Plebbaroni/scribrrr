@@ -35,9 +35,13 @@ export default async function streamRoutes(app: FastifyInstance): Promise<void> 
 
     // Soniox session is created lazily so the browser can pass context first.
     let soniox: ReturnType<typeof createSonioxSession> | null = null;
+    // Set once startSoniox has been attempted (successfully or not), so a
+    // missing key / init failure doesn't get retried on every PCM frame.
+    let sonioxStartAttempted = false;
 
     const startSoniox = (context?: SessionContext) => {
-      if (soniox) return;
+      if (sonioxStartAttempted) return;
+      sonioxStartAttempted = true;
       try {
         soniox = createSonioxSession(
           {
@@ -58,9 +62,20 @@ export default async function streamRoutes(app: FastifyInstance): Promise<void> 
       }
     };
 
+    // Debug signal: confirms PCM is actually reaching the backend, independent
+    // of whether Soniox is reachable/configured.
+    let pcmBytesThisSecond = 0;
+    const pcmLogInterval = setInterval(() => {
+      if (pcmBytesThisSecond > 0) {
+        app.log.info({ sessionId, bytesPerSec: pcmBytesThisSecond }, "PCM received from browser");
+      }
+      pcmBytesThisSecond = 0;
+    }, 1000);
+
     browser.on("message", (raw: Buffer, isBinary: boolean) => {
       // Binary => raw PCM audio, forward straight to Soniox.
       if (isBinary) {
+        pcmBytesThisSecond += raw.byteLength;
         if (!soniox) startSoniox();
         soniox?.sendAudio(raw);
         return;
@@ -78,12 +93,14 @@ export default async function streamRoutes(app: FastifyInstance): Promise<void> 
 
     browser.on("close", () => {
       app.log.info({ sessionId }, "browser disconnected");
+      clearInterval(pcmLogInterval);
       soniox?.close();
       soniox = null;
     });
 
     browser.on("error", (err: Error) => {
       app.log.error({ sessionId, err: err.message }, "browser socket error");
+      clearInterval(pcmLogInterval);
       soniox?.close();
       soniox = null;
     });
