@@ -3,9 +3,9 @@
   "private": true,
   "workspaces": ["apps/*"],
   "scripts": {
-    "dev:web": "npm run dev --workspace=apps/web",
+    "dev:web": "npm run dev --workspace=apps/client",
     "dev:server": "npm run dev --workspace=apps/server",
-    "build:web": "npm run build --workspace=apps/web",
+    "build:web": "npm run build --workspace=apps/client",
     "build:server": "npm run build --workspace=apps/server"
   }
 }
