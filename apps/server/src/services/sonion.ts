@@ -1,228 +1,201 @@
-import fs from "fs";
 import WebSocket from "ws";
-import { parseArgs } from "node:util";
 
 const SONIOX_WEBSOCKET_URL = "wss://stt-rt.soniox.com/transcribe-websocket";
 
-// Get Soniox STT config
-function getConfig(apiKey, audioFormat, translation) {
-  const config = {
-    // Get your API key at console.soniox.com, then run: export SONIOX_API_KEY=<YOUR_API_KEY>
+// ---- Types -----------------------------------------------------------------
+
+type AudioFormat = "auto" | "pcm_s16le";
+
+interface ContextEntry {
+  key: string;
+  value: string;
+}
+
+interface SonioxContext {
+  general?: ContextEntry[];
+  terms?: string[];
+}
+
+interface SonioxConfig {
+  api_key: string;
+  model: string;
+  language_hints?: string[];
+  enable_language_identification?: boolean;
+  enable_speaker_diarization?: boolean;
+  enable_endpoint_detection?: boolean;
+  context?: SonioxContext;
+  audio_format?: AudioFormat;
+  sample_rate?: number;
+  num_channels?: number;
+}
+
+// A single token in a Soniox response.
+// Optional fields only appear when their feature is enabled in the config.
+export interface SonioxToken {
+  text: string;
+  is_final: boolean;
+  speaker?: string;
+  language?: string;
+  start_ms?: number;
+  end_ms?: number;
+  confidence?: number;
+}
+
+// The parsed JSON of each WebSocket message from Soniox.
+export interface SonioxResponse {
+  tokens?: SonioxToken[];
+  final_audio_proc_ms?: number;
+  total_audio_proc_ms?: number;
+  finished?: boolean;
+  error_code?: number;
+  error_message?: string;
+}
+
+// Optional per-session priming passed in from the client (session/new page).
+export interface SessionContext {
+  topic?: string;
+  participants?: string[];
+  terms?: string[];
+}
+
+// Callbacks the route wires up to relay data back to the browser.
+export interface SonioxHandlers {
+  onToken: (res: SonioxResponse) => void; // a parsed response arrived
+  onError: (code: number, message: string) => void; // Soniox reported an error
+  onClose: () => void; // Soniox connection closed
+}
+
+// ---- Config builder --------------------------------------------------------
+
+function getConfig(
+  apiKey: string,
+  sessionContext?: SessionContext,
+): SonioxConfig {
+  const config: SonioxConfig = {
     api_key: apiKey,
-
-    // Select the model to use.
-    // See: soniox.com/docs/stt/models
     model: "stt-rt-v5",
-
-    // Set language hints when possible to significantly improve accuracy.
-    // See: soniox.com/docs/stt/concepts/language-hints
-    language_hints: ["en", "es"],
-
-    // Enable language identification. Each token will include a "language" field.
-    // See: soniox.com/docs/stt/concepts/language-identification
-    enable_language_identification: true,
-
-    // Enable speaker diarization. Each token will include a "speaker" field.
-    // See: soniox.com/docs/stt/concepts/speaker-diarization
+    language_hints: ["en"],
     enable_speaker_diarization: true,
-
-    // Set context to help the model understand your domain, recognize important terms,
-    // and apply custom vocabulary and translation preferences.
-    // See: soniox.com/docs/stt/concepts/context
-    context: {
-      general: [
-        { key: "domain", value: "Healthcare" },
-        { key: "topic", value: "Diabetes management consultation" },
-        { key: "doctor", value: "Dr. Martha Smith" },
-        { key: "patient", value: "Mr. David Miller" },
-        { key: "organization", value: "St John's Hospital" },
-      ],
-      text: "Mr. David Miller visited his healthcare provider last month for a routine follow-up related to diabetes care. The clinician reviewed his recent test results, noted improved glucose levels, and adjusted his medication schedule accordingly. They also discussed meal planning strategies and scheduled the next check-up for early spring.",
-      terms: [
-        "Celebrex",
-        "Zyrtec",
-        "Xanax",
-        "Prilosec",
-        "Amoxicillin Clavulanate Potassium",
-      ],
-      translation_terms: [
-        { source: "Mr. Smith", target: "Sr. Smith" },
-        { source: "St John's", target: "St John's" },
-        { source: "stroke", target: "ictus" },
-      ],
-    },
-
-    // Use endpointing to detect when the speaker stops.
-    // It finalizes all non-final tokens right away, minimizing latency.
-    // See: soniox.com/docs/stt/rt/endpoint-detection
     enable_endpoint_detection: true,
+    // Browser sends raw PCM: 16-bit signed little-endian, 16 kHz, mono.
+    // This MUST match what the frontend's AudioWorklet produces.
+    audio_format: "pcm_s16le",
+    sample_rate: 16000,
+    num_channels: 1,
   };
 
-  // Audio format.
-  // See: soniox.com/docs/stt/rt/real-time-transcription#audio-formats
-  if (audioFormat === "auto") {
-    // Set to "auto" to let Soniox detect the audio format automatically.
-    config.audio_format = "auto";
-  } else if (audioFormat === "pcm_s16le") {
-    // Example of a raw audio format; Soniox supports many others as well.
-    config.audio_format = "pcm_s16le";
-    config.sample_rate = 16000;
-    config.num_channels = 1;
-  } else {
-    throw new Error(`Unsupported audio_format: ${audioFormat}`);
-  }
+  // Attach context only if the caller actually provided something useful.
+  if (sessionContext) {
+    const general: ContextEntry[] = [];
+    if (sessionContext.topic) {
+      general.push({ key: "topic", value: sessionContext.topic });
+    }
+    if (sessionContext.participants?.length) {
+      general.push({
+        key: "participants",
+        value: sessionContext.participants.join(", "),
+      });
+    }
 
-  // Translation options.
-  // See: soniox.com/docs/stt/rt/real-time-translation#translation-modes
-  if (translation === "one_way") {
-    // Translates all languages into the target language.
-    config.translation = { type: "one_way", target_language: "es" };
-  } else if (translation === "two_way") {
-    // Translates from language_a to language_b and back from language_b to language_a.
-    config.translation = {
-      type: "two_way",
-      language_a: "en",
-      language_b: "es",
-    };
-  } else if (translation !== "none") {
-    throw new Error(`Unsupported translation: ${translation}`);
+    const ctx: SonioxContext = {};
+    if (general.length) ctx.general = general;
+    if (sessionContext.terms?.length) ctx.terms = sessionContext.terms;
+    if (general.length || sessionContext.terms?.length) config.context = ctx;
   }
 
   return config;
 }
 
-// Read the audio file and send its bytes to the websocket.
-async function streamAudio(audioPath, ws) {
-  const stream = fs.createReadStream(audioPath, { highWaterMark: 3840 });
+// ---- Session ---------------------------------------------------------------
 
-  for await (const chunk of stream) {
-    ws.send(chunk);
-    // Sleep for 120 ms to simulate real-time streaming.
-    await new Promise((res) => setTimeout(res, 120));
+/**
+ * Opens a WebSocket to Soniox for one transcription session.
+ *
+ * Returns a small controller the route uses to drive it:
+ *   - sendAudio(chunk): forward a raw PCM chunk from the browser to Soniox
+ *   - finish(): signal end-of-audio (Soniox flushes remaining tokens, then finishes)
+ *   - close(): tear the connection down immediately (e.g. browser disconnected)
+ *
+ * The handlers (onToken/onError/onClose) fire as data comes back from Soniox.
+ */
+export function createSonioxSession(
+  handlers: SonioxHandlers,
+  sessionContext?: SessionContext,
+): {
+  sendAudio: (chunk: Buffer) => void;
+  finish: () => void;
+  close: () => void;
+} {
+  const apiKey = process.env.SONIOX_API_KEY;
+  if (!apiKey) {
+    throw new Error("Missing SONIOX_API_KEY environment variable.");
   }
 
-  // Empty string signals end-of-audio to the server
-  ws.send("");
-}
-
-// Convert tokens into readable transcript
-function renderTokens(finalTokens, nonFinalTokens) {
-  let textParts = [];
-  let currentSpeaker = null;
-  let currentLanguage = null;
-
-  const allTokens = [...finalTokens, ...nonFinalTokens];
-
-  // Process all tokens in order.
-  for (const token of allTokens) {
-    let { text, speaker, language } = token;
-    const isTranslation = token.translation_status === "translation";
-
-    // Speaker changed -> add a speaker tag.
-    if (speaker && speaker !== currentSpeaker) {
-      if (currentSpeaker !== null) textParts.push("\n\n");
-      currentSpeaker = speaker;
-      currentLanguage = null; // Reset language on speaker changes.
-      textParts.push(`Speaker ${currentSpeaker}:`);
-    }
-
-    // Language changed -> add a language or translation tag.
-    if (language && language !== currentLanguage) {
-      currentLanguage = language;
-      const prefix = isTranslation ? "[Translation] " : "";
-      textParts.push(`\n${prefix}[${currentLanguage}] `);
-      text = text.trimStart();
-    }
-
-    textParts.push(text);
-  }
-
-  textParts.push("\n===============================");
-  return textParts.join("");
-}
-
-function runSession(apiKey, audioPath, audioFormat, translation) {
-  const config = getConfig(apiKey, audioFormat, translation);
-
-  console.log("Connecting to Soniox...");
+  const config = getConfig(apiKey, sessionContext);
   const ws = new WebSocket(SONIOX_WEBSOCKET_URL);
 
-  let finalTokens = [];
+  // Audio chunks may arrive from the browser before the Soniox socket is open.
+  // Buffer them until "open", then flush in order.
+  let isOpen = false;
+  const pending: Buffer[] = [];
 
   ws.on("open", () => {
-    // Send first request with config.
+    isOpen = true;
+    // First frame must be the JSON config.
     ws.send(JSON.stringify(config));
-
-    // Start streaming audio in the background.
-    streamAudio(audioPath, ws).catch((err) =>
-      console.error("Audio stream error:", err),
-    );
-    console.log("Session started.");
+    // Flush anything the browser already sent.
+    for (const chunk of pending) ws.send(chunk);
+    pending.length = 0;
   });
 
-  ws.on("message", (msg) => {
-    const res = JSON.parse(msg.toString());
+  ws.on("message", (msg: WebSocket.RawData) => {
+    let res: SonioxResponse;
+    try {
+      res = JSON.parse(msg.toString()) as SonioxResponse;
+    } catch {
+      return; // ignore malformed frames
+    }
 
-    // Error from server.
-    // See: https://soniox.com/docs/stt/api-reference/websocket-api#error-response
     if (res.error_code) {
-      console.error(`Error: ${res.error_code} - ${res.error_message}`);
+      handlers.onError(res.error_code, res.error_message ?? "unknown error");
       ws.close();
       return;
     }
 
-    // Parse tokens from current response.
-    let nonFinalTokens = [];
-    if (res.tokens) {
-      for (const token of res.tokens) {
-        if (token.text) {
-          if (token.is_final) {
-            // Final tokens are returned once and should be appended to final_tokens.
-            finalTokens.push(token);
-          } else {
-            // Non-final tokens update as more audio arrives; reset them on every response.
-            nonFinalTokens.push(token);
-          }
-        }
-      }
-    }
+    handlers.onToken(res);
 
-    // Render tokens.
-    const text = renderTokens(finalTokens, nonFinalTokens);
-    console.log(text);
-
-    // Session finished.
     if (res.finished) {
-      console.log("Session finished.");
       ws.close();
     }
   });
 
-  ws.on("error", (err) => console.error("WebSocket error:", err));
-}
-
-async function main() {
-  const { values: argv } = parseArgs({
-    options: {
-      audio_path: { type: "string", required: true },
-      audio_format: { type: "string", default: "auto" },
-      translation: { type: "string", default: "none" },
-    },
+  ws.on("error", (err: Error) => {
+    handlers.onError(-1, err.message);
   });
 
-  const apiKey = process.env.SONIOX_API_KEY;
-  if (!apiKey) {
-    throw new Error(
-      "Missing SONIOX_API_KEY.\n" +
-      "1. Get your API key at https://console.soniox.com\n" +
-      "2. Run: export SONIOX_API_KEY=<YOUR_API_KEY>",
-    );
-  }
+  ws.on("close", () => {
+    handlers.onClose();
+  });
 
-  runSession(apiKey, argv.audio_path, argv.audio_format, argv.translation);
+  return {
+    sendAudio(chunk: Buffer) {
+      if (isOpen && ws.readyState === WebSocket.OPEN) {
+        ws.send(chunk);
+      } else {
+        pending.push(chunk);
+      }
+    },
+    finish() {
+      // Empty string signals end-of-audio to Soniox.
+      if (ws.readyState === WebSocket.OPEN) ws.send("");
+    },
+    close() {
+      if (
+        ws.readyState === WebSocket.OPEN ||
+        ws.readyState === WebSocket.CONNECTING
+      ) {
+        ws.close();
+      }
+    },
+  };
 }
-
-main().catch((err) => {
-  console.error("Error:", err.message);
-  process.exit(1);
-});
