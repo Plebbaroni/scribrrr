@@ -1,10 +1,13 @@
 const BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = {};
+  if (options?.body) headers["Content-Type"] = "application/json";
+
   const res = await fetch(`${BASE_URL}${path}`, {
-    headers: { "Content-Type": "application/json" },
     credentials: "include",
     ...options,
+    headers: { ...headers, ...(options?.headers as Record<string, string>) },
   });
   if (!res.ok) {
     throw new Error(`API error: ${res.status} ${res.statusText}`);
