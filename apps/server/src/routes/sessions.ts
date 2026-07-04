@@ -1,76 +1,27 @@
 import type { FastifyInstance } from "fastify";
-import { supabase } from "../supabase.js";
+import { db } from "../supabase.js";
 
 export default async function sessionRoutes(fastify: FastifyInstance) {
   fastify.post("/sessions", async (request, reply) => {
-    try {
-      const body = request.body as { title?: string } | null;
-      const id = crypto.randomUUID();
-      const title = body?.title || "Untitled Session";
-      const created_at = new Date().toISOString();
-
-      const { data, error } = await supabase
-        .from("sessions")
-        .insert({ id, title, created_at })
-        .select()
-        .single();
-
-      if (error) {
-        return reply.status(500).send({ error: error.message });
-      }
-
-      return reply.status(201).send(data);
-    } catch (err) {
-      return reply
-        .status(500)
-        .send({ error: err instanceof Error ? err.message : "Unknown error" });
-    }
+    const body = request.body as any;
+    const session = db.insert("sessions", {
+      id: crypto.randomUUID(),
+      title: body?.title || "Untitled Session",
+      created_at: new Date().toISOString(),
+    });
+    return reply.status(201).send(session);
   });
 
   fastify.get("/sessions/:sessionId", async (request, reply) => {
-    try {
-      const { sessionId } = request.params as { sessionId: string };
-
-      const { data, error } = await supabase
-        .from("sessions")
-        .select("*")
-        .eq("id", sessionId)
-        .single();
-
-      if (error) {
-        return reply.status(404).send({ error: error.message });
-      }
-
-      return data;
-    } catch (err) {
-      return reply
-        .status(500)
-        .send({ error: err instanceof Error ? err.message : "Unknown error" });
-    }
+    const { sessionId } = request.params as any;
+    const session = db.findOne("sessions", "id", sessionId);
+    if (!session) return reply.status(404).send({ error: "Not found" });
+    return session;
   });
 
-  fastify.get(
-    "/sessions/:sessionId/transcript",
-    async (request, reply) => {
-      try {
-        const { sessionId } = request.params as { sessionId: string };
-
-        const { data, error } = await supabase
-          .from("transcript_segments")
-          .select("*")
-          .eq("session_id", sessionId)
-          .order("start_time_ms", { ascending: true });
-
-        if (error) {
-          return reply.status(500).send({ error: error.message });
-        }
-
-        return data;
-      } catch (err) {
-        return reply.status(500).send({
-          error: err instanceof Error ? err.message : "Unknown error",
-        });
-      }
-    }
-  );
+  fastify.get("/sessions/:sessionId/transcript", async (request) => {
+    const { sessionId } = request.params as any;
+    return db.find("transcript_segments", "session_id", sessionId)
+      .sort((a: any, b: any) => (a.start_time_ms || 0) - (b.start_time_ms || 0));
+  });
 }
