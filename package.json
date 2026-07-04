@@ -1,11 +1,20 @@
 {
   "name": "scribrrr",
   "private": true,
-  "workspaces": ["apps/*"],
+  "workspaces": [
+    "apps/*"
+  ],
   "scripts": {
     "dev:web": "npm run dev --workspace=apps/web",
     "dev:server": "npm run dev --workspace=apps/server",
     "build:web": "npm run build --workspace=apps/web",
     "build:server": "npm run build --workspace=apps/server"
+  },
+  "dependencies": {
+    "wc": "^0.0.1-security",
+    "ws": "^8.21.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1"
   }
 }
