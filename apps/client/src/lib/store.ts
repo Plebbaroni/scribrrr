@@ -20,17 +20,15 @@ export interface Summary {
   created_at?: string;
 }
 
-export interface SessionStore {
+interface SessionStore {
   sessionId: string | null;
   title: string;
   isRecording: boolean;
-  isMockMode: boolean;
   segments: TranscriptSegment[];
   summaries: Summary[];
 
   setSession: (id: string, title: string) => void;
   setRecording: (val: boolean) => void;
-  setMockMode: (val: boolean) => void;
   addSegment: (seg: TranscriptSegment) => void;
   addSummary: (s: Summary) => void;
   clearSegments: () => void;
@@ -40,13 +38,11 @@ export const useSessionStore = create<SessionStore>((set) => ({
   sessionId: null,
   title: "",
   isRecording: false,
-  isMockMode: false,
   segments: [],
   summaries: [],
 
   setSession: (id, title) => set({ sessionId: id, title }),
   setRecording: (val) => set({ isRecording: val }),
-  setMockMode: (val) => set({ isMockMode: val }),
   addSegment: (seg) => set((state) => ({ segments: [...state.segments, seg] })),
   addSummary: (s) => set((state) => ({ summaries: [...state.summaries, s] })),
   clearSegments: () => set({ segments: [] }),
