@@ -3,6 +3,7 @@ const BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
     headers: { "Content-Type": "application/json" },
+    credentials: "include",
     ...options,
   });
   if (!res.ok) {
@@ -39,4 +40,16 @@ export function generatePdf(sessionId: string) {
   return request<{ url: string }>(`/sessions/${sessionId}/pdf`, {
     method: "POST",
   });
+}
+
+export function getMe() {
+  return request<{ id: string; email: string; name: string; picture: string }>("/auth/me");
+}
+
+export function getGoogleLoginUrl() {
+  return `${BASE_URL}/auth/google`;
+}
+
+export function logout() {
+  return request<{ ok: boolean }>("/auth/logout", { method: "POST" });
 }
