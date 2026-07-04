@@ -58,11 +58,106 @@ export interface SessionContext {
   terms?: string[];
 }
 
+// A finalized, speaker-attributed chunk of transcript ready to show/store.
+export interface AssembledSegment {
+  speaker?: string;
+  text: string;
+  startMs?: number;
+  endMs?: number;
+}
+
 // Callbacks the route wires up to relay data back to the browser.
 export interface SonioxHandlers {
-  onToken: (res: SonioxResponse) => void; // a parsed response arrived
+  onSegment: (segment: AssembledSegment) => void; // a segment finalized (speaker change / endpoint / stream end)
+  onPartial: (speaker: string | undefined, text: string) => void; // live, mutable in-progress text
   onError: (code: number, message: string) => void; // Soniox reported an error
+  onFinished: () => void; // Soniox has flushed everything and is done
   onClose: () => void; // Soniox connection closed
+}
+
+// ---- Segment assembly -------------------------------------------------------
+
+// Soniox marks the end of an utterance (when enable_endpoint_detection is on)
+// with a final token whose text is literally "<end>" — not real transcript
+// content, just a boundary marker. See:
+// https://soniox.com/docs/stt/rt/endpoint-detection
+const END_TOKEN_TEXT = "<end>";
+
+/**
+ * Groups a raw Soniox token stream into speaker-attributed segments.
+ *
+ * Soniox semantics this relies on (see docs/stt/rt):
+ *   - Each message's tokens are only the NEW final tokens since the last
+ *     message (final tokens are sent exactly once, in order, never repeated)
+ *     followed by the CURRENT full set of non-final tokens (non-final tokens
+ *     replace the previous non-final buffer wholesale, not incrementally).
+ *   - A final "<end>" token marks an endpoint (pause) and means everything
+ *     before it in the segment is now final.
+ *
+ * A segment is flushed (via onSegment) when: the speaker on incoming final
+ * tokens changes, an "<end>" token arrives, or the stream finishes.
+ */
+export class SegmentAssembler {
+  private speaker: string | undefined;
+  private text: string[] = [];
+  private startMs: number | undefined;
+  private endMs: number | undefined;
+
+  constructor(
+    private readonly onSegment: (segment: AssembledSegment) => void,
+    private readonly onPartial: (speaker: string | undefined, text: string) => void,
+  ) { }
+
+  push(response: SonioxResponse): void {
+    const tokens = response.tokens ?? [];
+    let sawFinal = false;
+
+    for (const token of tokens) {
+      if (!token.is_final) continue;
+      sawFinal = true;
+
+      if (token.text === END_TOKEN_TEXT) {
+        this.flush();
+        continue;
+      }
+      this.appendFinal(token);
+    }
+
+    const pending = tokens.filter((t) => !t.is_final);
+    if (pending.length > 0) {
+      const speaker = pending.find((t) => t.speaker !== undefined)?.speaker ?? this.speaker;
+      this.onPartial(speaker, pending.map((t) => t.text).join(""));
+    } else if (sawFinal) {
+      // Everything that was pending became final (or hit <end>) this round.
+      this.onPartial(this.speaker, "");
+    }
+
+    if (response.finished) this.flush();
+  }
+
+  private appendFinal(token: SonioxToken): void {
+    if (this.speaker !== undefined && token.speaker !== undefined && token.speaker !== this.speaker) {
+      this.flush();
+    }
+    if (this.speaker === undefined) this.speaker = token.speaker;
+    if (this.startMs === undefined) this.startMs = token.start_ms;
+    this.endMs = token.end_ms ?? this.endMs;
+    this.text.push(token.text);
+  }
+
+  private flush(): void {
+    if (this.text.length === 0) return;
+    this.onSegment({
+      speaker: this.speaker,
+      text: this.text.join("").trim(),
+      startMs: this.startMs,
+      endMs: this.endMs,
+    });
+    this.speaker = undefined;
+    this.text = [];
+    this.startMs = undefined;
+    this.endMs = undefined;
+  }
 }
 
 // ---- Config builder --------------------------------------------------------
@@ -116,7 +211,8 @@ function getConfig(
  *   - finish(): signal end-of-audio (Soniox flushes remaining tokens, then finishes)
  *   - close(): tear the connection down immediately (e.g. browser disconnected)
  *
- * The handlers (onToken/onError/onClose) fire as data comes back from Soniox.
+ * The handlers (onSegment/onPartial/onError/onFinished/onClose) fire as data
+ * comes back from Soniox, via the SegmentAssembler.
  */
 export function createSonioxSession(
   handlers: SonioxHandlers,
@@ -133,6 +229,7 @@ export function createSonioxSession(
 
   const config = getConfig(apiKey, sessionContext);
   const ws = new WebSocket(SONIOX_WEBSOCKET_URL);
+  const assembler = new SegmentAssembler(handlers.onSegment, handlers.onPartial);
 
   // Audio chunks may arrive from the browser before the Soniox socket is open.
   // Buffer them until "open", then flush in order.
@@ -162,9 +259,10 @@ export function createSonioxSession(
       return;
     }
 
-    handlers.onToken(res);
+    assembler.push(res);
 
     if (res.finished) {
+      handlers.onFinished();
       ws.close();
     }
   });

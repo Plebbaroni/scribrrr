@@ -2,8 +2,8 @@ import type { FastifyInstance } from "fastify";
 import type { WebSocket } from "ws";
 import {
   createSonioxSession,
+  type AssembledSegment,
   type SessionContext,
-  type SonioxResponse,
 } from "../services/sonion.js";
 
 // Control frames the browser sends as JSON text.
@@ -14,7 +14,8 @@ type ClientControl =
 
 // Messages we send back to the browser as JSON.
 type ServerMessage =
-  | { type: "tokens"; data: SonioxResponse }
+  | { type: "segment"; segment: AssembledSegment }
+  | { type: "partial"; speaker: string | undefined; text: string }
   | { type: "error"; code: number; message: string }
   | { type: "finished" };
 
@@ -40,11 +41,10 @@ export default async function streamRoutes(app: FastifyInstance): Promise<void> 
       try {
         soniox = createSonioxSession(
           {
-            onToken: (res) => {
-              send({ type: "tokens", data: res });
-              if (res.finished) send({ type: "finished" });
-            },
+            onSegment: (segment) => send({ type: "segment", segment }),
+            onPartial: (speaker, text) => send({ type: "partial", speaker, text }),
             onError: (code, message) => send({ type: "error", code, message }),
+            onFinished: () => send({ type: "finished" }),
             onClose: () => { },
           },
           context,
