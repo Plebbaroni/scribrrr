@@ -91,22 +91,48 @@ export function summarizeSession(sessionId: string, options?: { force?: boolean 
   }).then(normalizeSummaryResponse);
 }
 
+type SummaryContent = {
+  summary?: string;
+  decisions?: string[];
+  action_items?: string[];
+  open_questions?: string[];
+  risks_or_blockers?: string[];
+};
+
+type SummaryApiRow = {
+  id?: string;
+  summary?: string;
+  created_at?: string;
+  content?: string | SummaryContent;
+};
+
+function asSummaryRow(data: unknown): SummaryApiRow | null {
+  if (!data || typeof data !== "object") return null;
+  const record = data as Record<string, unknown>;
+  if (record.summary && typeof record.summary === "object") {
+    return record.summary as SummaryApiRow;
+  }
+  return record as SummaryApiRow;
+}
+
 export function normalizeSummaryResponse(data: unknown): Summary {
-  const row = (data as any)?.summary ?? data;
+  const row = asSummaryRow(data);
   const content = row?.content ?? {};
 
   const summaryText =
     typeof content === "string"
       ? content
-      : content.summary ?? row.summary ?? "";
+      : content.summary ?? row?.summary ?? "";
+
+  const structured = typeof content === "object" && content ? content : {};
 
   return {
     id: row?.id,
     summary: summaryText,
-    decisions: content.decisions ?? [],
-    action_items: content.action_items ?? [],
-    open_questions: content.open_questions ?? [],
-    risks_or_blockers: content.risks_or_blockers ?? [],
+    decisions: structured.decisions ?? [],
+    action_items: structured.action_items ?? [],
+    open_questions: structured.open_questions ?? [],
+    risks_or_blockers: structured.risks_or_blockers ?? [],
     created_at: row?.created_at,
   };
 }

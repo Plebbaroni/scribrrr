@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import type { Speaker } from "@/lib/api";
 import { getSpeakerStyle } from "@/lib/speakerStyles";
 import { PencilIcon } from "@/components/PencilIcon";
@@ -66,10 +66,6 @@ function EditableSpeakerLabel({
   const [draft, setDraft] = useState(name);
   const [saving, setSaving] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    setDraft(name);
-  }, [name]);
 
   function startEditing() {
     setDraft(name);

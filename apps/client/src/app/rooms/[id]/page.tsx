@@ -30,10 +30,6 @@ function SessionRow({
   const [saving, setSaving] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    setDraft(session.title);
-  }, [session.title]);
-
   function startEditing(e: React.MouseEvent) {
     e.preventDefault();
     e.stopPropagation();
