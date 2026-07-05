@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { createSession, getRoom, getRoomSessions, getSessionSummary, summarizeSession, updateSession } from "@/lib/api";
+import { createSession, downloadSessionPdf, getRoom, getRoomSessions, getSessionSummary, summarizeSession, updateSession } from "@/lib/api";
 import { AppNavbar } from "@/components/AppNavbar";
 import { PencilIcon } from "@/components/PencilIcon";
 
@@ -196,6 +196,7 @@ export default function RoomPage() {
       } catch {
         await summarizeSession(sessionId);
       }
+      await downloadSessionPdf(sessionId);
       router.push(`/session/${sessionId}?summary=open`);
     } catch (err) {
       console.error(err);

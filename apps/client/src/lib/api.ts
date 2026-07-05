@@ -112,9 +112,46 @@ export function normalizeSummaryResponse(data: unknown): Summary {
 }
 
 export function generatePdf(sessionId: string) {
-  return request<{ url: string }>(`/sessions/${sessionId}/pdf`, {
-    method: "POST",
+  return fetchSessionPdf(sessionId).then(({ blob }) => {
+    const url = URL.createObjectURL(blob);
+    return { url };
   });
+}
+
+export function downloadSessionPdf(sessionId: string) {
+  return fetchSessionPdf(sessionId).then(({ blob, filename }) => {
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  });
+}
+
+async function fetchSessionPdf(sessionId: string): Promise<{ blob: Blob; filename: string }> {
+  const res = await fetch(`${BASE_URL}/sessions/${sessionId}/pdf`, {
+    method: "POST",
+    credentials: "include",
+  });
+
+  if (!res.ok) {
+    let message = `API error: ${res.status} ${res.statusText}`;
+    try {
+      const body = (await res.json()) as { error?: string };
+      if (body?.error) message = body.error;
+    } catch {
+      // ignore non-JSON error bodies
+    }
+    throw new Error(message);
+  }
+
+  const blob = await res.blob();
+  const disposition = res.headers.get("Content-Disposition");
+  const filenameMatch = disposition?.match(/filename="([^"]+)"/);
+  const filename = filenameMatch?.[1] ?? "session-report.pdf";
+
+  return { blob, filename };
 }
 
 export function getMe() {

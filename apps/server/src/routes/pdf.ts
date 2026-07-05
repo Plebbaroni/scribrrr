@@ -103,6 +103,26 @@ export default async function pdfRoutes(fastify: FastifyInstance) {
   ) {
     const { sessionId } = request.params;
 
+    try {
+      return await buildSessionPdf(sessionId, reply);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (/executable doesn't exist|playwright install/i.test(message)) {
+        return reply.status(503).send({
+          error:
+            "PDF renderer is not installed. Run `npx playwright install chromium` in apps/server, then restart the server.",
+        });
+      }
+      throw err;
+    }
+  }
+
+  fastify.get("/sessions/:sessionId/pdf", downloadSessionPdf);
+  fastify.post("/sessions/:sessionId/pdf", downloadSessionPdf);
+}
+
+async function buildSessionPdf(sessionId: string, reply: FastifyReply) {
+
     const { data: session, error: sessionError } = await supabase
       .from("sessions")
       .select("id, session_name, created_at, ended_at, room_id")
@@ -197,7 +217,11 @@ export default async function pdfRoutes(fastify: FastifyInstance) {
     const summariesHtml = (summaries ?? []).length
       ? (summaries ?? [])
           .map((summary: any) => {
-            const summaryText = summary.content?.summary ?? JSON.stringify(summary.content, null, 2);
+            const content = summary.content;
+            const summaryText =
+              typeof content === "string"
+                ? content
+                : content?.summary ?? JSON.stringify(content ?? {}, null, 2);
 
             return `
               <section class="summaryBlock">
@@ -422,32 +446,31 @@ export default async function pdfRoutes(fastify: FastifyInstance) {
 </html>`;
 
     const browser = await chromium.launch();
-    const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: "networkidle" });
-    const pdf = await page.pdf({
-      format: "A4",
-      printBackground: true,
-      displayHeaderFooter: true,
-      footerTemplate:
-        '<div style="font-size:8px;color:#7b8798;width:100%;padding:0 18mm;text-align:right;">Page <span class="pageNumber"></span> of <span class="totalPages"></span></div>',
-      headerTemplate: "<div></div>",
-      margin: {
-        top: "18mm",
-        right: "18mm",
-        bottom: "18mm",
-        left: "18mm",
-      },
-    });
-    await browser.close();
+    try {
+      const page = await browser.newPage();
+      await page.setContent(html, { waitUntil: "networkidle" });
+      const pdf = await page.pdf({
+        format: "A4",
+        printBackground: true,
+        displayHeaderFooter: true,
+        footerTemplate:
+          '<div style="font-size:8px;color:#7b8798;width:100%;padding:0 18mm;text-align:right;">Page <span class="pageNumber"></span> of <span class="totalPages"></span></div>',
+        headerTemplate: "<div></div>",
+        margin: {
+          top: "18mm",
+          right: "18mm",
+          bottom: "18mm",
+          left: "18mm",
+        },
+      });
 
-    const filename = `${sanitizeFilename(sessionName) || "session"}-report.pdf`;
+      const filename = `${sanitizeFilename(sessionName) || "session"}-report.pdf`;
 
-    return reply
-      .header("Content-Type", "application/pdf")
-      .header("Content-Disposition", `attachment; filename="${filename}"`)
-      .send(pdf);
-  }
-
-  fastify.get("/sessions/:sessionId/pdf", downloadSessionPdf);
-  fastify.post("/sessions/:sessionId/pdf", downloadSessionPdf);
+      return reply
+        .header("Content-Type", "application/pdf")
+        .header("Content-Disposition", `attachment; filename="${filename}"`)
+        .send(pdf);
+    } finally {
+      await browser.close();
+    }
 }
