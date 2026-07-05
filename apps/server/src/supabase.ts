@@ -1,18 +1,34 @@
 import "dotenv/config";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import ws from "ws";
 
-const url = process.env.SUPABASE_URL;
-const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+let supabaseClient: SupabaseClient | null = null;
 
-if (!url || !key) {
-  throw new Error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set");
+export function getSupabase(): SupabaseClient {
+  if (supabaseClient) return supabaseClient;
+
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !key) {
+    throw new Error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set");
+  }
+
+  supabaseClient = createClient(url, key, {
+    auth: { persistSession: false },
+    realtime: { transport: ws as any },
+  });
+
+  return supabaseClient;
 }
 
-// Create connection to Supabase with service role key (secret key in .env)
-export const supabase = createClient(url, key, {
-  auth: { persistSession: false },
-  realtime: { transport: ws as any },
+/** Lazy proxy so the process can boot /health before secrets are validated on first DB call. */
+export const supabase: SupabaseClient = new Proxy({} as SupabaseClient, {
+  get(_target, prop, receiver) {
+    const client = getSupabase();
+    const value = Reflect.get(client, prop, receiver);
+    return typeof value === "function" ? value.bind(client) : value;
+  },
 });
 
 /**

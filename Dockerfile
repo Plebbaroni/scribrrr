@@ -1,5 +1,4 @@
-# Scribrrr backend for Fly.io / Railway (WebSockets + Playwright PDF).
-# Deploy the Next.js client separately on Vercel — it must not install Chromium.
+# Scribrrr backend for Fly.io
 
 FROM node:22-bookworm AS build
 
@@ -15,19 +14,22 @@ COPY apps/server/src apps/server/src
 
 RUN npm run build --workspace=@scribrrr/server
 
-RUN npm ci --workspace=@scribrrr/server --omit=dev
+FROM node:22-bookworm AS runtime
 
-# Official Playwright image includes Chromium + OS deps (matches playwright npm package).
-FROM mcr.microsoft.com/playwright:v1.61.1-noble AS runtime
+# Chromium system libraries for PDF generation (loaded lazily at runtime).
+RUN npx --yes playwright install-deps chromium
 
 WORKDIR /app
 
 ENV NODE_ENV=production
 ENV PORT=8080
 
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/apps/server/package.json ./apps/server/package.json
+COPY package.json package-lock.json ./
+COPY apps/server/package.json apps/server/
 COPY --from=build /app/apps/server/dist ./apps/server/dist
+
+RUN npm ci --workspace=@scribrrr/server --omit=dev \
+  && npx playwright install chromium
 
 EXPOSE 8080
 

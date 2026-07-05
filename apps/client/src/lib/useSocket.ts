@@ -2,8 +2,7 @@
 
 import { useEffect, useRef, useCallback } from "react";
 import { useSessionStore, type TranscriptSegment } from "./store";
-
-const WS_BASE = process.env.NEXT_PUBLIC_BACKEND_WS_URL || "ws://localhost:3001";
+import { getBackendWsUrl } from "./backendUrl";
 
 // How long to wait for the server's "finished" message (after we send "stop")
 // before we give up and close the socket ourselves.
@@ -54,7 +53,7 @@ export function useSocket(
   useEffect(() => {
     if (!isRecording || !sessionId) return;
 
-    const ws = new WebSocket(`${WS_BASE}/stream/${sessionId}`);
+    const ws = new WebSocket(`${getBackendWsUrl()}/stream/${sessionId}`);
     wsRef.current = ws;
 
     ws.onopen = () => {

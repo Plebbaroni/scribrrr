@@ -2,7 +2,7 @@
 # fly secrets set SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... SONIOX_API_KEY= ...
 # fly deploy
 
-app = "scribrrr-api"
+app = "scribrrr"
 primary_region = "syd"
 
 [build]
@@ -20,6 +20,13 @@ primary_region = "syd"
   auto_stop_machines = "off"
   auto_start_machines = true
   min_machines_running = 1
+
+  [[http_service.checks]]
+    grace_period = "20s"
+    interval = "15s"
+    method = "GET"
+    path = "/health"
+    timeout = "5s"
 
   [http_service.concurrency]
     type = "connections"

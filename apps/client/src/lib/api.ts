@@ -1,12 +1,11 @@
 import type { Summary } from "./store";
-
-const BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
+import { getBackendUrl } from "./backendUrl";
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {};
   if (options?.body) headers["Content-Type"] = "application/json";
 
-  const res = await fetch(`${BASE_URL}${path}`, {
+  const res = await fetch(`${getBackendUrl()}${path}`, {
     credentials: "include",
     ...options,
     headers: { ...headers, ...(options?.headers as Record<string, string>) },
@@ -156,7 +155,7 @@ export function downloadSessionPdf(sessionId: string) {
 }
 
 async function fetchSessionPdf(sessionId: string): Promise<{ blob: Blob; filename: string }> {
-  const res = await fetch(`${BASE_URL}/sessions/${sessionId}/pdf`, {
+  const res = await fetch(`${getBackendUrl()}/sessions/${sessionId}/pdf`, {
     method: "POST",
     credentials: "include",
   });
@@ -185,7 +184,7 @@ export function getMe() {
 }
 
 export function getGoogleLoginUrl() {
-  return `${BASE_URL}/auth/google`;
+  return `${getBackendUrl()}/auth/google`;
 }
 
 export function logout() {

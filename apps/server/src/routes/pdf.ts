@@ -1,5 +1,4 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { chromium } from "playwright";
 import { supabase } from "../supabase.js";
 
 type SessionParams = {
@@ -445,6 +444,7 @@ async function buildSessionPdf(sessionId: string, reply: FastifyReply) {
 </body>
 </html>`;
 
+    const { chromium } = await import("playwright");
     const browser = await chromium.launch();
     try {
       const page = await browser.newPage();

@@ -17,15 +17,30 @@ import pdfRoutes from "./routes/pdf.js";
 import streamRoutes from "./routes/stream.js";
 import { getFrontendUrl } from "./lib/urls.js";
 
-const PORT = parseInt(process.env.PORT ?? "3001", 10);
+const PORT = parseInt(process.env.PORT ?? "8080", 10);
 const GENERATED_DIR = "/tmp/generated";
 
 async function main() {
-  const app = Fastify({ logger: false });
+  console.log(`Starting Scribrrr API (Node ${process.version}, PORT=${PORT})`);
+  const app = Fastify({ logger: process.env.NODE_ENV === "production" });
   const frontendUrl = getFrontendUrl();
 
   await app.register(cors, {
-    origin: process.env.NODE_ENV === "production" ? frontendUrl : true,
+    origin: (origin, callback) => {
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+      if (process.env.NODE_ENV !== "production") {
+        callback(null, true);
+        return;
+      }
+      const allowed =
+        origin === frontendUrl ||
+        origin.endsWith(".vercel.app") ||
+        origin === "https://scribrrr.vercel.app";
+      callback(null, allowed);
+    },
     credentials: true,
   });
   await app.register(cookie);
@@ -48,6 +63,7 @@ async function main() {
   await app.register(streamRoutes);
 
   await app.listen({ port: PORT, host: "0.0.0.0" });
+  console.log(`Scribrrr API listening on 0.0.0.0:${PORT}`);
 }
 
 main().catch((err) => {

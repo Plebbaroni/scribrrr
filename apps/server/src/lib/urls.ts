@@ -7,7 +7,7 @@ export function getFrontendUrl() {
     return stripTrailingSlash(process.env.FRONTEND_URL);
   }
   if (process.env.NODE_ENV === "production") {
-    throw new Error("FRONTEND_URL is required in production");
+    return "https://scribrrr.vercel.app";
   }
   return "http://localhost:3000";
 }
@@ -17,7 +17,7 @@ export function getBackendUrl() {
     return stripTrailingSlash(process.env.BACKEND_URL);
   }
   if (process.env.NODE_ENV === "production") {
-    throw new Error("BACKEND_URL is required in production");
+    return "https://scribrrr.fly.dev";
   }
   return `http://localhost:${process.env.PORT ?? 3001}`;
 }
