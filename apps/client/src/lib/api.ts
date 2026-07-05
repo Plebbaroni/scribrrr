@@ -1,3 +1,5 @@
+import type { Summary } from "./store";
+
 const BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -25,20 +27,43 @@ export function createSession(title?: string, roomId?: string) {
 }
 
 export function getSession(id: string) {
-  return request<{ id: string; title: string }>(`/sessions/${id}`);
+  return request<{ id: string; title: string; room_id?: string | null }>(`/sessions/${id}`);
 }
 
 export function getTranscript(sessionId: string) {
-  return request<{ segments: Array<{ id?: string; speaker?: string; text: string; start_time_ms?: number; end_time_ms?: number; is_final?: boolean; confidence?: number }> }>(
+  return request<Array<{ id?: string; speaker?: string; text: string; start_time_ms?: number; end_time_ms?: number; is_final?: boolean; confidence?: number }>>(
     `/sessions/${sessionId}/transcript`
   );
 }
 
 export function summarizeRecent(sessionId: string) {
-  return request<{ id?: string; summary: string; decisions: string[]; action_items: string[]; open_questions: string[]; risks_or_blockers: string[]; created_at?: string }>(
-    `/sessions/${sessionId}/summaries/recent`,
-    { method: "POST" }
+  return summarizeSession(sessionId);
+}
+
+export function summarizeSession(sessionId: string) {
+  return request<unknown>(`/sessions/${sessionId}/summaries`, { method: "POST" }).then(
+    normalizeSummaryResponse
   );
+}
+
+export function normalizeSummaryResponse(data: unknown): Summary {
+  const row = (data as any)?.summary ?? data;
+  const content = row?.content ?? {};
+
+  const summaryText =
+    typeof content === "string"
+      ? content
+      : content.summary ?? row.summary ?? "";
+
+  return {
+    id: row?.id,
+    summary: summaryText,
+    decisions: content.decisions ?? [],
+    action_items: content.action_items ?? [],
+    open_questions: content.open_questions ?? [],
+    risks_or_blockers: content.risks_or_blockers ?? [],
+    created_at: row?.created_at,
+  };
 }
 
 export function generatePdf(sessionId: string) {
@@ -57,4 +82,19 @@ export function getGoogleLoginUrl() {
 
 export function logout() {
   return request<{ ok: boolean }>("/auth/logout", { method: "POST" });
+}
+
+export function getRooms() {
+  return request<Array<{ id: string; name: string; created_at: string }>>("/rooms");
+}
+
+export function createRoom(name?: string) {
+  return request<{ id: string; name: string; created_at: string }>("/rooms", {
+    method: "POST",
+    body: JSON.stringify({ name: name || "Untitled Room" }),
+  });
+}
+
+export function getRoomSessions(roomId: string) {
+  return request<Array<{ id: string; title: string; created_at: string }>>(`/rooms/${roomId}/sessions`);
 }

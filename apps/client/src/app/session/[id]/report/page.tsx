@@ -19,7 +19,7 @@ export default function ReportPage() {
     Promise.all([getSession(sessionId), getTranscript(sessionId)]).then(
       ([session, transcript]) => {
         setTitle(session.title);
-        setSegments(transcript.segments);
+        setSegments(transcript);
         setLoading(false);
       }
     );

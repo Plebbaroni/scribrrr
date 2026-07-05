@@ -34,10 +34,10 @@ export default function Home() {
             </button>
           </div>
           <Link
-            href="/session/new"
+            href="/rooms"
             className="rounded-lg bg-indigo-600 px-6 py-3 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 transition-colors"
           >
-            New Session
+            Rooms
           </Link>
         </div>
       ) : (
