@@ -5,6 +5,7 @@ import {
   type AssembledSegment,
   type SessionContext,
 } from "../services/sonion.js";
+import { insertMessage } from "./messages.js";
 
 // Control frames the browser sends as JSON text.
 // Binary frames are treated as raw PCM audio and forwarded as-is.
@@ -53,7 +54,14 @@ export default async function streamRoutes(app: FastifyInstance): Promise<void> 
           {
             onSegment: (segment) => {
               console.log(`[${timestamp()}] Speaker ${segment.speaker ?? "?"}: ${segment.text}`);
-              // TODO: upsert the segment to the database
+              insertMessage(sessionId, {
+                displayId: Number(segment.speaker ?? 0),
+                text: segment.text,
+                startMs: segment.startMs,
+                endMs: segment.endMs,
+              }).catch((err) => {
+                app.log.error({ sessionId, err: err.message }, "failed to persist segment");
+              });
               send({ type: "segment", segment });
             },
             onPartial: (speaker, text) => send({ type: "partial", speaker, text }),

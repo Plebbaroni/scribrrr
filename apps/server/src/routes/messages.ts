@@ -7,6 +7,44 @@
 import type { FastifyInstance } from "fastify";
 import { supabase, getOrCreateSpeaker } from "../supabase.js";
 
+export interface InsertMessageParams {
+  displayId: number;
+  text: string;
+  startMs?: number;
+  endMs?: number;
+  confidence?: number;
+}
+
+/**
+ * Shared by POST /sessions/:sessionId/messages and the live Soniox stream
+ * (stream.ts calls this directly in-process on each finalized segment,
+ * rather than looping back through HTTP to its own server).
+ */
+export async function insertMessage(sessionId: string, params: InsertMessageParams) {
+  const speaker = await getOrCreateSpeaker(sessionId, params.displayId);
+
+  const { data, error } = await supabase
+    .from("messages")
+    .insert({
+      session_id: sessionId,
+      speaker_id: speaker.id,
+      text: params.text,
+      start_time_ms: params.startMs ?? null,
+      end_time_ms: params.endMs ?? null,
+      confidence: params.confidence ?? null,
+    })
+    .select("id, text, start_time_ms, end_time_ms, confidence, created_at")
+    .single();
+
+  if (error) throw new Error(error.message);
+
+  return {
+    ...data,
+    session_id: sessionId,
+    speaker: { id: speaker.id, name: speaker.name, display_id: speaker.display_id },
+  };
+}
+
 export default async function messageRoutes(fastify: FastifyInstance) {
   // GET /sessions/:sessionId/messages
   // Returns messages for a session
@@ -121,28 +159,14 @@ export default async function messageRoutes(fastify: FastifyInstance) {
     }
 
     try {
-      const speaker = await getOrCreateSpeaker(sessionId, Number(body.speaker));
-
-      const { data, error } = await supabase
-        .from("messages")
-        .insert({
-          session_id: sessionId,
-          speaker_id: speaker.id,
-          text: body.message,
-          start_time_ms: body.timestamp,
-          end_time_ms: body.end_timestamp ?? body.timestamp,
-          confidence: body.confidence ?? null,
-        })
-        .select("id, text, start_time_ms, end_time_ms, confidence, created_at")
-        .single();
-
-      if (error) return reply.status(500).send({ error: error.message });
-
-      return reply.status(201).send({
-        ...data,
-        session_id: sessionId,
-        speaker: { id: speaker.id, name: speaker.name, display_id: speaker.display_id },
+      const message = await insertMessage(sessionId, {
+        displayId: Number(body.speaker),
+        text: body.message,
+        startMs: body.timestamp,
+        endMs: body.end_timestamp ?? body.timestamp,
+        confidence: body.confidence ?? undefined,
       });
+      return reply.status(201).send(message);
     } catch (err: any) {
       return reply.status(500).send({ error: err.message ?? "Failed to create message" });
     }
