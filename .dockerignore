@@ -1,0 +1,7 @@
+node_modules
+apps/client
+.git
+.env
+.env.*
+*.md
+.cursor

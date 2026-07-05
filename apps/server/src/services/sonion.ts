@@ -61,6 +61,8 @@ export interface SessionContext {
 // A finalized, speaker-attributed chunk of transcript ready to show/store.
 export interface AssembledSegment {
   speaker?: string;
+  speaker_id?: string;
+  speaker_display_id?: number;
   text: string;
   startMs?: number;
   endMs?: number;

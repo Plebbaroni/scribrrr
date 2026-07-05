@@ -1,0 +1,30 @@
+# fly launch  (from repo root — uses Dockerfile)
+# fly secrets set SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... SONIOX_API_KEY= ...
+# fly deploy
+
+app = "scribrrr-api"
+primary_region = "syd"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8080"
+  NODE_ENV = "production"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "connections"
+    hard_limit = 250
+    soft_limit = 200
+
+[[vm]]
+  memory = "1gb"
+  cpu_kind = "shared"
+  cpus = 1
