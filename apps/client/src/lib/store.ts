@@ -34,6 +34,7 @@ interface SessionStore {
   summaries: Summary[];
 
   setSession: (id: string, title: string) => void;
+  setTitle: (title: string) => void;
   resetForSession: (id: string, title: string) => void;
   setRecording: (val: boolean) => void;
   setSegments: (segments: TranscriptSegment[]) => void;
@@ -52,6 +53,7 @@ export const useSessionStore = create<SessionStore>((set) => ({
   summaries: [],
 
   setSession: (id, title) => set({ sessionId: id, title }),
+  setTitle: (title) => set({ title }),
   resetForSession: (id, title) =>
     set({
       sessionId: id,

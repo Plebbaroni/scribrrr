@@ -30,6 +30,13 @@ export function getSession(id: string) {
   return request<{ id: string; title: string; room_id?: string | null }>(`/sessions/${id}`);
 }
 
+export function updateSession(id: string, title: string) {
+  return request<{ id: string; title: string; room_id?: string | null }>(`/sessions/${id}`, {
+    method: "PUT",
+    body: JSON.stringify({ title }),
+  });
+}
+
 export function getTranscript(sessionId: string) {
   return request<Array<{ id?: string; speaker?: string; text: string; start_time_ms?: number; end_time_ms?: number; is_final?: boolean; confidence?: number }>>(
     `/sessions/${sessionId}/transcript`

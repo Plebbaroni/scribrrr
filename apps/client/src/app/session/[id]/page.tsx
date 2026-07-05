@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useSessionStore } from "@/lib/store";
 import { useSocket } from "@/lib/useSocket";
 import { useAudioRecorder } from "@/lib/useAudioRecorder";
-import { getSession, getTranscript, summarizeRecent } from "@/lib/api";
+import { getSession, getTranscript, summarizeRecent, updateSession } from "@/lib/api";
 import type { Summary } from "@/lib/store";
 
 const SPEAKER_COLORS: Record<number, { bg: string; text: string; label: string }> = {
@@ -25,13 +25,17 @@ export default function SessionPage() {
   const sessionId = params.id;
   const router = useRouter();
 
-  const { title, isRecording, segments, partial, summaries, resetForSession, setRecording, setSegments, addSummary } =
+  const { title, isRecording, segments, partial, summaries, resetForSession, setTitle, setRecording, setSegments, addSummary } =
     useSessionStore();
 
   const { send } = useSocket(sessionId, undefined, isRecording);
   useAudioRecorder(send, isRecording);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const titleInputRef = useRef<HTMLInputElement>(null);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [draftTitle, setDraftTitle] = useState("");
+  const [savingTitle, setSavingTitle] = useState(false);
   const [summarizing, setSummarizing] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [activeSummary, setActiveSummary] = useState<Summary | null>(null);
@@ -98,6 +102,39 @@ export default function SessionPage() {
     handleBack();
   }
 
+  function startEditingTitle() {
+    setDraftTitle(title || "New Session");
+    setEditingTitle(true);
+    setTimeout(() => titleInputRef.current?.select(), 0);
+  }
+
+  async function saveTitle() {
+    const next = draftTitle.trim();
+    if (!next || !sessionId) {
+      setEditingTitle(false);
+      return;
+    }
+    if (next === title) {
+      setEditingTitle(false);
+      return;
+    }
+
+    setSavingTitle(true);
+    try {
+      const updated = await updateSession(sessionId, next);
+      setTitle(updated.title);
+      setEditingTitle(false);
+    } catch (e) {
+      console.error(e);
+    }
+    setSavingTitle(false);
+  }
+
+  function cancelEditingTitle() {
+    setEditingTitle(false);
+    setDraftTitle(title);
+  }
+
   // Group consecutive segments by same speaker — all left-aligned
   const grouped: { speaker: string; texts: string[] }[] = [];
   for (const seg of segments) {
@@ -113,22 +150,51 @@ export default function SessionPage() {
   const latestSummary = activeSummary ?? summaries[summaries.length - 1] ?? null;
 
   return (
-    <main className="flex h-screen flex-col bg-white">
-      <header className="px-8 py-5">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handleBack}
-            className="text-gray-400 hover:text-gray-600 text-lg"
-            aria-label="Back"
-          >
-            ←
-          </button>
-          <h1 className="text-2xl font-bold tracking-tight text-gray-900">Scribrrr</h1>
-        </div>
-        <p className="mt-2 text-sm font-medium text-gray-600">{title || "New Session"}</p>
+    <main className="flex h-screen flex-col overflow-hidden bg-white">
+      <header className="shrink-0 border-b border-gray-200 px-8 py-5 pb-6 mb-4">
+        <h1 className="text-2xl font-bold tracking-tight text-gray-900">Scribrrr</h1>
       </header>
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-8 py-4 space-y-5">
+      <div className="shrink-0 flex items-center gap-3 px-8 pb-4">
+        <button
+          onClick={handleBack}
+          className="shrink-0 text-gray-400 hover:text-gray-600 text-lg"
+          aria-label="Back"
+        >
+          ←
+        </button>
+        {editingTitle ? (
+          <input
+            ref={titleInputRef}
+            value={draftTitle}
+            onChange={(e) => setDraftTitle(e.target.value)}
+            onBlur={saveTitle}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                void saveTitle();
+              }
+              if (e.key === "Escape") {
+                e.preventDefault();
+                cancelEditingTitle();
+              }
+            }}
+            disabled={savingTitle}
+            className="min-w-0 flex-1 max-w-lg rounded-lg border border-gray-300 px-3 py-2 text-xl font-semibold text-gray-900 focus:border-gray-400 focus:outline-none"
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={startEditingTitle}
+            className="min-w-0 text-left text-xl font-semibold text-gray-700 hover:text-gray-900"
+            title="Click to rename"
+          >
+            {title || "New Session"}
+          </button>
+        )}
+      </div>
+
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto py-4 pb-6 space-y-5 mx-[10%]">
         {segments.length === 0 && !isRecording && !partial && (
           <div className="flex h-full items-center justify-center">
             <p className="text-sm text-gray-400">Press Start to begin transcribing</p>
@@ -173,7 +239,7 @@ export default function SessionPage() {
         )}
       </div>
 
-      <footer className="border-t border-gray-200 px-8 py-4">
+      <footer className="shrink-0 border-t border-gray-200 bg-white px-8 py-4">
         <div className="flex items-center justify-between gap-4">
           <button
             onClick={handleFinish}

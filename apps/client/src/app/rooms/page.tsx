@@ -62,7 +62,7 @@ export default function RoomsPage() {
 
   return (
     <main className="flex h-screen flex-col bg-white">
-      <header className="flex items-center justify-between px-8 py-5">
+      <header className="shrink-0 flex items-center justify-between border-b border-gray-200 px-8 py-5">
         <h1 className="text-2xl font-bold tracking-tight text-gray-900">Scribrrr</h1>
         <div className="flex items-center gap-4">
           <button

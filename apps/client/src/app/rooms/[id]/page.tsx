@@ -38,7 +38,7 @@ export default function RoomPage() {
 
   return (
     <main className="min-h-screen bg-gray-50">
-      <header className="flex items-center justify-between px-8 py-5">
+      <header className="flex items-center justify-between border-b border-gray-200 bg-white px-8 py-5">
         <div className="flex items-center gap-3">
           <Link href="/rooms" className="text-gray-400 hover:text-gray-600 text-lg">←</Link>
           <h1 className="text-2xl font-bold tracking-tight text-gray-900">Scribrrr</h1>
