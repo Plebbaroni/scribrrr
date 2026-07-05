@@ -8,16 +8,104 @@ import type { FastifyInstance } from "fastify";
 import { supabase, getOrCreateSpeaker } from "../supabase.js";
 
 export default async function messageRoutes(fastify: FastifyInstance) {
+  // GET /sessions/:sessionId/messages
+  // Returns messages for a session
+  fastify.get("/sessions/:sessionId/messages", async (request, reply) => {
+    const { sessionId } = request.params as any;
+
+    const { data, error } = await supabase
+      .from("messages")
+      .select("id, text, start_time_ms, end_time_ms, confidence, created_at, speakers ( id, name, display_id )")
+      .eq("session_id", sessionId)
+      .order("start_time_ms", { ascending: true });
+
+    if (error) return reply.status(500).send({ error: error.message });
+
+    const messages = (data ?? []).map((row: any) => ({
+      id: row.id,
+      session_id: sessionId,
+      text: row.text,
+      start_time_ms: row.start_time_ms,
+      end_time_ms: row.end_time_ms,
+      confidence: row.confidence,
+      created_at: row.created_at,
+      speaker: row.speakers
+        ? { id: row.speakers.id, name: row.speakers.name, display_id: row.speakers.display_id }
+        : null,
+    }));
+
+    return messages;
+  });
+
+  // PUT /sessions/:sessionId/messages/:messageId
+  // body: any subset of { message, speaker, timestamp, end_timestamp, confidence }
+  // Update any field of a message provided by the session ID and message ID.
+  fastify.put("/sessions/:sessionId/messages/:messageId", async (request, reply) => {
+    const { sessionId, messageId } = request.params as any;
+    const body = request.body as any;
+
+    // Scope the update to this session so you can't edit another session's
+    // message just by guessing/knowing its id.
+    const { data: existing, error: findErr } = await supabase
+      .from("messages")
+      .select("id")
+      .eq("id", messageId)
+      .eq("session_id", sessionId)
+      .maybeSingle();
+
+    if (findErr) return reply.status(500).send({ error: findErr.message });
+    if (!existing) return reply.status(404).send({ error: "Message not found" });
+
+    const update: Record<string, any> = {};
+    if (body?.message !== undefined) update.text = body.message;
+    if (body?.timestamp !== undefined) update.start_time_ms = body.timestamp;
+    if (body?.end_timestamp !== undefined) update.end_time_ms = body.end_timestamp;
+    if (body?.confidence !== undefined) update.confidence = body.confidence;
+
+    try {
+      if (body?.speaker !== undefined && body?.speaker !== null) {
+        const speaker = await getOrCreateSpeaker(sessionId, Number(body.speaker));
+        update.speaker_id = speaker.id;
+      }
+
+      if (Object.keys(update).length === 0) {
+        return reply.status(400).send({ error: "No updatable fields provided" });
+      }
+
+      const { data, error } = await supabase
+        .from("messages")
+        .update(update)
+        .eq("id", messageId)
+        .select("id, text, start_time_ms, end_time_ms, confidence, created_at, speakers ( id, name, display_id )")
+        .single();
+
+      if (error) return reply.status(500).send({ error: error.message });
+
+      return {
+        id: data.id,
+        session_id: sessionId,
+        text: data.text,
+        start_time_ms: data.start_time_ms,
+        end_time_ms: data.end_time_ms,
+        confidence: data.confidence,
+        created_at: data.created_at,
+        speaker: (data as any).speakers
+          ? {
+              id: (data as any).speakers.id,
+              name: (data as any).speakers.name,
+              display_id: (data as any).speakers.display_id,
+            }
+          : null,
+      };
+    } catch (err: any) {
+      return reply.status(500).send({ error: err.message ?? "Failed to update message" });
+    }
+  });
+
   // POST /sessions/:sessionId/messages
   // body: { speaker: number (display_id, e.g. 0/1 from diarization), message: string,
   //         timestamp: number (ms), end_timestamp?: number (ms), confidence?: number }
-  //
-  // Note: this is a plain insert, not a true upsert -- messages don't have a
-  // natural conflict key (no client-supplied id, and (session_id, start_time_ms)
-  // isn't guaranteed unique if two speakers start at the same ms). If you need
-  // idempotent writes (e.g. retrying a request after a dropped connection),
-  // say so and we can add a client-generated id column with an on-conflict
-  // upsert instead of a plain insert.
+  // Insert a new message by the session ID
   fastify.post("/sessions/:sessionId/messages", async (request, reply) => {
     const { sessionId } = request.params as any;
     const body = request.body as any;
@@ -60,14 +148,26 @@ export default async function messageRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // GET /sessions/:sessionId/messages
-  fastify.get("/sessions/:sessionId/messages", async (request, reply) => {
+  // POST /sessions/:sessionId/messages/range
+  // body: { start_time_ms: number, end_time_ms: number }
+  // Return messages in a given time range for a session
+  fastify.post("/sessions/:sessionId/messages/range", async (request, reply) => {
     const { sessionId } = request.params as any;
+    const body = request.body as any;
+
+    if (body?.start_time_ms === undefined || body?.end_time_ms === undefined) {
+      return reply.status(400).send({ error: "start_time_ms and end_time_ms are required" });
+    }
+    if (Number(body.start_time_ms) > Number(body.end_time_ms)) {
+      return reply.status(400).send({ error: "start_time_ms must be <= end_time_ms" });
+    }
 
     const { data, error } = await supabase
       .from("messages")
       .select("id, text, start_time_ms, end_time_ms, confidence, created_at, speakers ( id, name, display_id )")
       .eq("session_id", sessionId)
+      .gte("start_time_ms", body.start_time_ms)
+      .lte("start_time_ms", body.end_time_ms)
       .order("start_time_ms", { ascending: true });
 
     if (error) return reply.status(500).send({ error: error.message });
@@ -87,7 +187,4 @@ export default async function messageRoutes(fastify: FastifyInstance) {
 
     return messages;
   });
-
-  // TODO: PUT /sessions/:sessionId/messages/:messageId - update message info (inside body can be new user)
-  // TODO: POST /sessions/:sessionId/messages/range - filter messages by a start/end time window
 }
