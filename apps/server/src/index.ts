@@ -10,6 +10,7 @@ import healthRoutes from "./routes/health.js";
 import authRoutes from "./routes/auth.js";
 import sessionRoutes from "./routes/sessions.js";
 import roomRoutes from "./routes/rooms.js";
+import messageRoutes from "./routes/messages.js";
 import summaryRoutes from "./routes/summaries.js";
 import pdfRoutes from "./routes/pdf.js";
 import streamRoutes from "./routes/stream.js";
@@ -35,6 +36,7 @@ async function main() {
   await app.register(authRoutes);
   await app.register(sessionRoutes);
   await app.register(roomRoutes);
+  await app.register(messageRoutes);
   await app.register(summaryRoutes);
   await app.register(pdfRoutes);
   await app.register(streamRoutes);
