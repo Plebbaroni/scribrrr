@@ -35,7 +35,7 @@ export default function SessionPage() {
   const { title, isRecording, segments, summaries, setSession, setRecording, addSummary } =
     useSessionStore();
 
-  const { send } = useSocket(sessionId, false, isRecording);
+  const { send } = useSocket(sessionId, undefined, isRecording);
   useAudioRecorder(send, isRecording);
 
   const scrollRef = useRef<HTMLDivElement>(null);

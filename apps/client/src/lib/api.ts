@@ -15,10 +15,12 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export function createSession(title?: string) {
-  return request<{ id: string; title: string }>("/sessions", {
+// TODO: UI note: Include session name option in UI and carry room name into
+// this function
+export function createSession(title?: string, roomId?: string) {
+  return request<{ id: string; title: string; room_id?: string | null }>("/sessions", {
     method: "POST",
-    body: JSON.stringify({ title: title || "Untitled Session" }),
+    body: JSON.stringify({ title: title || "Untitled Session", room_id: roomId }),
   });
 }
 

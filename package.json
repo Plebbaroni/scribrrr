@@ -1,17 +1,21 @@
 {
-  "name": "scribrrr",
-  "private": true,
-  "workspaces": [
-    "apps/*"
-  ],
-  "scripts": {
-    "dev:web": "npm run dev --workspace=apps/client",
-    "dev:server": "npm run dev --workspace=apps/server",
-    "build:web": "npm run build --workspace=apps/client",
-    "build:server": "npm run build --workspace=apps/server"
-  },
-  "dependencies": {
-    "@google/genai": "^2.10.0",
-    "@supabase/supabase-js": "^2.110.0"
-  }
+    "name": "scribrrr",
+    "private": true,
+    "workspaces": [
+        "apps/*"
+    ],
+    "scripts": {
+        "dev:web": "npm run dev --workspace=apps/client",
+        "dev:server": "npm run dev --workspace=apps/server",
+        "build:web": "npm run build --workspace=apps/client",
+        "build:server": "npm run build --workspace=apps/server"
+    },
+    "dependencies": {
+        "ws": "^8.21.0"
+    },
+    "devDependencies": {
+        "@types/ws": "^8.18.1",
+        "@supabase/ssr": "^0.12.0",
+        "@supabase/supabase-js": "^2.109.0"
+    }
 }

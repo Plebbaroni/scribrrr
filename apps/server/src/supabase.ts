@@ -1,48 +1,41 @@
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import "dotenv/config";
+import { createClient } from "@supabase/supabase-js";
+import ws from "ws";
 
-let supabaseClient: SupabaseClient | null = null;
+const url = process.env.SUPABASE_URL;
+const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-function getSupabaseClient() {
-  if (supabaseClient) return supabaseClient;
-
-  const supabaseUrl = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseKey =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ??
-    process.env.SUPABASE_ANON_KEY ??
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
-
-  if (!supabaseUrl || !supabaseKey) {
-    throw new Error(
-      "Missing Supabase environment variables. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY in apps/server/.env."
-    );
-  }
-
-  supabaseClient = createClient(supabaseUrl.trim(), supabaseKey.trim());
-  return supabaseClient;
+if (!url || !key) {
+  throw new Error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set");
 }
 
-export const supabase = new Proxy({} as SupabaseClient, {
-  get(_target, prop, receiver) {
-    return Reflect.get(getSupabaseClient(), prop, receiver);
-  },
+// Create connection to Supabase with service role key (secret key in .env)
+export const supabase = createClient(url, key, {
+  auth: { persistSession: false },
+  realtime: { transport: ws as any },
 });
 
-const store: Record<string, any[]> = {};
+/**
+ * Speakers are keyed by (session_id, display_id). This finds or creates
+ * the corresponding row so messages.speaker_id can point at a real speaker.
+ */
+export async function getOrCreateSpeaker(sessionId: string, displayId: number) {
+  const { data: existing, error: findErr } = await supabase
+    .from("speakers")
+    .select()
+    .eq("session_id", sessionId)
+    .eq("display_id", displayId)
+    .maybeSingle();
 
-export const db = {
-  table(name: string) {
-    if (!store[name]) store[name] = [];
-    return store[name];
-  },
-  insert(table: string, row: any) {
-    if (!store[table]) store[table] = [];
-    store[table].push(row);
-    return row;
-  },
-  find(table: string, key: string, val: any) {
-    return (store[table] || []).filter((r: any) => r[key] === val);
-  },
-  findOne(table: string, key: string, val: any) {
-    return (store[table] || []).find((r: any) => r[key] === val) || null;
-  },
-};
+  if (findErr) throw findErr;
+  if (existing) return existing;
+
+  const { data: created, error: insErr } = await supabase
+    .from("speakers")
+    .insert({ session_id: sessionId, display_id: displayId, name: `Speaker ${displayId}` })
+    .select()
+    .single();
+
+  if (insErr) throw insErr;
+  return created;
+}
