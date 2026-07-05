@@ -88,6 +88,29 @@ export default async function roomRoutes(fastify: FastifyInstance) {
       .order("created_at", { ascending: false });
 
     if (error) return res.status(500).send({ error: error.message });
-    return data;
+
+    const sessions = data ?? [];
+    if (sessions.length === 0) return sessions;
+
+    const sessionIds = sessions.map((session: { id: string }) => session.id);
+    const { data: speakers, error: speakersErr } = await supabase
+      .from("speakers")
+      .select("session_id, name, display_id")
+      .in("session_id", sessionIds)
+      .order("display_id", { ascending: true });
+
+    if (speakersErr) return res.status(500).send({ error: speakersErr.message });
+
+    const participantsBySession = new Map<string, string[]>();
+    for (const speaker of speakers ?? []) {
+      const list = participantsBySession.get(speaker.session_id) ?? [];
+      list.push(speaker.name);
+      participantsBySession.set(speaker.session_id, list);
+    }
+
+    return sessions.map((session: { id: string }) => ({
+      ...session,
+      participants: participantsBySession.get(session.id) ?? [],
+    }));
   });
 }

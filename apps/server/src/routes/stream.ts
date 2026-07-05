@@ -53,16 +53,29 @@ export default async function streamRoutes(app: FastifyInstance): Promise<void> 
         soniox = createSonioxSession(
           {
             onSegment: (segment) => {
-              console.log(`[${timestamp()}] Speaker ${segment.speaker ?? "?"}: ${segment.text}`);
-              insertMessage(sessionId, {
+              void insertMessage(sessionId, {
                 displayId: Number(segment.speaker ?? 0),
                 text: segment.text,
                 startMs: segment.startMs,
                 endMs: segment.endMs,
-              }).catch((err) => {
-                app.log.error({ sessionId, err: err.message }, "failed to persist segment");
-              });
-              send({ type: "segment", segment });
+              })
+                .then((saved) => {
+                  send({
+                    type: "segment",
+                    segment: {
+                      speaker: saved.speaker.name,
+                      speaker_id: saved.speaker.id,
+                      speaker_display_id: saved.speaker.display_id,
+                      text: segment.text,
+                      startMs: segment.startMs,
+                      endMs: segment.endMs,
+                    },
+                  });
+                })
+                .catch((err) => {
+                  app.log.error({ sessionId, err: err.message }, "failed to persist segment");
+                  send({ type: "segment", segment });
+                });
             },
             onPartial: (speaker, text) => send({ type: "partial", speaker, text }),
             onError: (code, message) => send({ type: "error", code, message }),

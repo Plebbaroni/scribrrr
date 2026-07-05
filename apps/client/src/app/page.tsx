@@ -13,29 +13,29 @@ export default function Home() {
   }, []);
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center bg-white px-4">
-      <h1 className="text-5xl font-bold tracking-tight text-gray-900">Scribrrr</h1>
-      <p className="mt-4 text-lg text-gray-500">Real-time AI transcription for meetings</p>
+    <main className="flex min-h-screen flex-col items-center justify-center bg-bg px-4 text-[#0A0A0A]">
+      <h1 className="text-5xl font-semibold tracking-tight text-[#0A0A0A]">Scribrrr</h1>
+      <p className="mt-4 text-lg text-[#737373]">Real-time AI transcription for meetings</p>
 
       {loading ? (
-        <div className="mt-8 h-5 w-5 animate-spin rounded-full border-2 border-gray-300 border-t-gray-600" />
+        <div className="mt-8 h-5 w-5 animate-spin rounded-full border-2 border-border border-t-[#0A0A0A]" />
       ) : user ? (
         <div className="mt-8 flex flex-col items-center gap-4">
           <div className="flex items-center gap-3">
             {user.picture && (
               <img src={user.picture} alt="" className="h-8 w-8 rounded-full" />
             )}
-            <span className="text-sm text-gray-700">{user.name}</span>
+            <span className="text-sm text-[#0A0A0A]">{user.name}</span>
             <button
               onClick={() => logout().then(() => setUser(null))}
-              className="text-xs text-gray-400 hover:text-gray-600"
+              className="text-xs text-[#737373] transition-colors hover:text-[#0A0A0A]"
             >
               Sign out
             </button>
           </div>
           <Link
             href="/rooms"
-            className="rounded-lg bg-indigo-600 px-6 py-3 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 transition-colors"
+            className="rounded-lg border border-border bg-surface px-6 py-3 text-sm font-medium text-[#0A0A0A] transition-colors hover:bg-bg"
           >
             Rooms
           </Link>
@@ -43,7 +43,7 @@ export default function Home() {
       ) : (
         <a
           href={getGoogleLoginUrl()}
-          className="mt-8 flex items-center gap-3 rounded-lg border border-gray-300 bg-white px-6 py-3 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 transition-colors"
+          className="mt-8 flex items-center gap-3 rounded-lg border border-border bg-surface px-6 py-3 text-sm font-medium text-[#0A0A0A] transition-colors hover:bg-bg"
         >
           <svg className="h-5 w-5" viewBox="0 0 24 24">
             <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" />

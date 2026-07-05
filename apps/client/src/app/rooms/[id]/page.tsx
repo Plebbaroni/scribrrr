@@ -1,86 +1,316 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { getRoomSessions, createSession } from "@/lib/api";
+import { createSession, getRoom, getRoomSessions, getSessionSummary, summarizeSession, updateSession } from "@/lib/api";
+import { AppNavbar } from "@/components/AppNavbar";
 
-type Session = { id: string; title: string; created_at: string };
+type RoomSession = {
+  id: string;
+  title: string;
+  created_at: string;
+  participants: string[];
+};
+
+function PencilIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+    </svg>
+  );
+}
+
+function SessionRow({
+  session,
+  onRename,
+  onSummarize,
+  summarizing,
+}: {
+  session: RoomSession;
+  onRename: (id: string, title: string) => Promise<void>;
+  onSummarize: (id: string) => Promise<void>;
+  summarizing: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(session.title);
+  const [saving, setSaving] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setDraft(session.title);
+  }, [session.title]);
+
+  function startEditing(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setDraft(session.title);
+    setEditing(true);
+    setTimeout(() => inputRef.current?.select(), 0);
+  }
+
+  async function save() {
+    const next = draft.trim();
+    if (!next || next === session.title) {
+      setEditing(false);
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await onRename(session.id, next);
+      setEditing(false);
+    } catch (err) {
+      console.error(err);
+    }
+    setSaving(false);
+  }
+
+  async function handleSummarize(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    await onSummarize(session.id);
+  }
+
+  const formattedDate = new Date(session.created_at).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+
+  return (
+    <div className="group border-b border-border px-6 py-5 transition-colors hover:bg-surface/60">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-4 gap-y-2">
+          {editing ? (
+            <input
+              ref={inputRef}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={() => void save()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void save();
+                }
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  setDraft(session.title);
+                  setEditing(false);
+                }
+              }}
+              disabled={saving}
+              className="min-w-0 flex-1 rounded-lg border border-border bg-surface px-2 py-1 text-lg font-medium text-text focus:border-text focus:outline-none"
+            />
+          ) : (
+            <>
+              <Link
+                href={`/session/${session.id}`}
+                className="text-lg font-medium text-text transition-colors hover:text-muted"
+              >
+                {session.title}
+              </Link>
+              <button
+                type="button"
+                onClick={(e) => void handleSummarize(e)}
+                disabled={summarizing}
+                className="shrink-0 text-sm text-muted transition-colors hover:text-text disabled:opacity-50"
+              >
+                {summarizing ? "Summarizing…" : "Summarize"}
+              </button>
+            </>
+          )}
+        </div>
+        {!editing && (
+          <button
+            type="button"
+            onClick={startEditing}
+            className="shrink-0 rounded p-1 text-muted opacity-0 transition-opacity group-hover:opacity-100 hover:text-text"
+            aria-label="Rename session"
+          >
+            <PencilIcon />
+          </button>
+        )}
+      </div>
+      <Link href={`/session/${session.id}`} className="mt-1 block">
+        <p className="text-sm text-muted">{formattedDate}</p>
+        {session.participants.length > 0 ? (
+          <p className="mt-2 text-sm text-muted">{session.participants.join(", ")}</p>
+        ) : (
+          <p className="mt-2 text-sm text-muted/70">No participants yet</p>
+        )}
+      </Link>
+    </div>
+  );
+}
 
 export default function RoomPage() {
   const params = useParams<{ id: string }>();
   const roomId = params.id;
   const router = useRouter();
 
-  const [sessions, setSessions] = useState<Session[]>([]);
+  const [sessions, setSessions] = useState<RoomSession[]>([]);
+  const [roomName, setRoomName] = useState("");
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [sessionName, setSessionName] = useState("");
+  const [summarizingId, setSummarizingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!roomId) return;
-    getRoomSessions(roomId)
-      .then(setSessions)
+    Promise.all([getRoom(roomId), getRoomSessions(roomId)])
+      .then(([room, sessionList]) => {
+        setRoomName(room.name);
+        setSessions(sessionList);
+      })
       .catch(console.error)
       .finally(() => setLoading(false));
   }, [roomId]);
 
-  async function handleNewSession() {
-    if (!roomId) return;
+  function openModal() {
+    setSessionName("Untitled Session");
+    setModalOpen(true);
+  }
+
+  function closeModal() {
+    if (creating) return;
+    setModalOpen(false);
+    setSessionName("");
+  }
+
+  async function handleCreate(e?: React.FormEvent) {
+    e?.preventDefault();
+    const name = sessionName.trim();
+    if (!name || !roomId) return;
+
     setCreating(true);
     try {
-      const session = await createSession("Untitled Session", roomId);
+      const session = await createSession(name, roomId);
       router.push(`/session/${session.id}`);
-    } catch (e) {
-      console.error(e);
+    } catch (err) {
+      console.error(err);
       setCreating(false);
     }
   }
 
-  return (
-    <main className="min-h-screen bg-gray-50">
-      <header className="flex items-center justify-between border-b border-gray-200 bg-white px-8 py-5">
-        <div className="flex items-center gap-3">
-          <Link href="/rooms" className="text-gray-400 hover:text-gray-600 text-lg">←</Link>
-          <h1 className="text-2xl font-bold tracking-tight text-gray-900">Scribrrr</h1>
-        </div>
-        <button
-          onClick={handleNewSession}
-          disabled={creating}
-          className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
-        >
-          {creating ? "Creating…" : "New Session"}
-        </button>
-      </header>
+  async function handleSummarize(sessionId: string) {
+    if (summarizingId) return;
+    setSummarizingId(sessionId);
+    try {
+      try {
+        await getSessionSummary(sessionId);
+      } catch {
+        await summarizeSession(sessionId);
+      }
+      router.push(`/session/${sessionId}?summary=open`);
+    } catch (err) {
+      console.error(err);
+      alert(err instanceof Error ? err.message : "Summarize failed");
+      setSummarizingId(null);
+    }
+  }
 
-      <div className="mx-auto max-w-2xl p-6">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3">
-          Sessions
-        </h2>
+  async function handleRename(sessionId: string, title: string) {
+    const updated = await updateSession(sessionId, title);
+    setSessions((prev) =>
+      prev.map((s) => (s.id === sessionId ? { ...s, title: updated.title } : s))
+    );
+  }
+
+  return (
+    <main className="min-h-screen bg-bg text-text">
+      <AppNavbar />
+
+      <Link
+        href="/rooms"
+        className="inline-block px-8 pt-5 text-lg text-muted transition-colors hover:text-text"
+        aria-label="Back to rooms"
+      >
+        ←
+      </Link>
+
+      <div className="mx-auto max-w-4xl px-8 pb-12">
+        <div className="mt-4 flex items-center justify-between gap-4">
+          <h2 className="text-xl font-semibold text-text">
+            {roomName ? `${roomName}'s sessions` : "Sessions"}
+          </h2>
+          <button
+            type="button"
+            onClick={openModal}
+            disabled={creating}
+            className="shrink-0 text-sm font-medium text-text transition-colors hover:text-muted disabled:opacity-50"
+          >
+            + New Session
+          </button>
+        </div>
 
         {loading ? (
-          <div className="flex justify-center py-12">
-            <div className="h-6 w-6 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent" />
+          <div className="flex justify-center py-16">
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-border border-t-text" />
           </div>
         ) : sessions.length === 0 ? (
-          <p className="text-sm text-gray-500">No sessions in this room yet</p>
+          <p className="py-8 text-sm text-muted">No sessions in this room yet</p>
         ) : (
-          <ul className="space-y-2">
-            {sessions.map((s) => (
-              <li key={s.id}>
-                <Link
-                  href={`/session/${s.id}`}
-                  className="flex items-center justify-between rounded-lg border bg-white px-4 py-3 shadow-sm hover:bg-gray-50 transition-colors"
-                >
-                  <span className="font-medium text-gray-900">{s.title}</span>
-                  <span className="text-xs text-gray-400">
-                    {new Date(s.created_at).toLocaleDateString()}
-                  </span>
-                </Link>
+          <ul className="mt-4">
+            {sessions.map((session) => (
+              <li key={session.id}>
+                <SessionRow
+                  session={session}
+                  onRename={handleRename}
+                  onSummarize={handleSummarize}
+                  summarizing={summarizingId === session.id}
+                />
               </li>
             ))}
           </ul>
         )}
       </div>
+
+      {modalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 p-4"
+          onClick={closeModal}
+        >
+          <div
+            className="app-card w-full max-w-md rounded-2xl p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-lg font-semibold text-text">New Session</h2>
+            <p className="mt-1 text-sm text-muted">Name this session before you start</p>
+
+            <form onSubmit={handleCreate} className="mt-4">
+              <input
+                type="text"
+                value={sessionName}
+                onChange={(e) => setSessionName(e.target.value)}
+                placeholder="Session name"
+                autoFocus
+                className="w-full rounded-xl border border-border bg-surface px-4 py-2.5 text-sm text-text placeholder:text-muted focus:border-text focus:outline-none"
+              />
+
+              <div className="mt-6 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={closeModal}
+                  disabled={creating}
+                  className="rounded-lg px-4 py-2 text-sm font-medium text-muted transition-colors hover:text-text disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={creating || !sessionName.trim()}
+                  className="rounded-lg border border-border bg-surface px-4 py-2 text-sm font-medium text-text transition-colors hover:bg-bg disabled:opacity-50"
+                >
+                  {creating ? "Creating…" : "Create"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

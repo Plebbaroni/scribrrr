@@ -3,6 +3,8 @@ import { create } from "zustand";
 export interface TranscriptSegment {
   id?: string;
   speaker?: string;
+  speaker_id?: string | null;
+  speaker_display_id?: number | null;
   text: string;
   start_time_ms?: number;
   end_time_ms?: number;

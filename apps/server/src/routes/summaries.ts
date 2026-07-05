@@ -54,7 +54,8 @@ async function fetchTranscriptRows(sessionId: string, sinceIso?: string) {
     .from("messages")
     .select("id, speaker_id, text, start_time_ms, created_at")
     .eq("session_id", sessionId)
-    .order("start_time_ms", { ascending: true });
+    .order("start_time_ms", { ascending: true, nullsFirst: false })
+    .order("created_at", { ascending: true });
 
   if (sinceIso) query = query.gte("created_at", sinceIso);
 
@@ -122,7 +123,14 @@ export default async function summaryRoutes(fastify: FastifyInstance) {
     return summary;
   }
 
-  async function createSessionSummary(sessionId: string) {
+  async function createSessionSummary(sessionId: string, force = false) {
+    if (!force) {
+      const stored = await getStoredSessionSummary(sessionId);
+      if (stored) {
+        return { summary: stored, cached: true };
+      }
+    }
+
     const transcriptRows = await fetchTranscriptRows(sessionId);
 
     if (transcriptRows.length === 0) {
@@ -146,7 +154,17 @@ export default async function summaryRoutes(fastify: FastifyInstance) {
     }
 
     const transcriptJson = transcriptRowsToMeetingTranscriptJson(sessionId, transcriptRows);
-    const summaryText = await summariseMeetingTranscript(transcriptJson);
+    let summaryText: string;
+    try {
+      summaryText = await summariseMeetingTranscript(transcriptJson);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const rateLimited = /429|too many requests|quota|rate limit/i.test(message);
+      if (rateLimited) {
+        return { error: "Summary service is rate limited. Try again in a minute.", status: 429 };
+      }
+      throw err;
+    }
 
     const { data: existingSummary, error: existingSummaryError } = await supabase
       .from("summaries")
@@ -208,10 +226,12 @@ export default async function summaryRoutes(fastify: FastifyInstance) {
 
   fastify.post("/sessions/:sessionId/summaries", async (request, reply) => {
     const { sessionId } = request.params as any;
-    const result = await createSessionSummary(sessionId);
+    const force = Boolean((request.body as { force?: boolean })?.force);
+    const result = await createSessionSummary(sessionId, force);
 
     if ("error" in result) {
-      return reply.status(404).send(result);
+      const status = "status" in result && result.status === 429 ? 429 : 404;
+      return reply.status(status).send(result);
     }
 
     return result;
@@ -219,10 +239,12 @@ export default async function summaryRoutes(fastify: FastifyInstance) {
 
   fastify.post("/sessions/:sessionId/summaries/", async (request, reply) => {
     const { sessionId } = request.params as any;
-    const result = await createSessionSummary(sessionId);
+    const force = Boolean((request.body as { force?: boolean })?.force);
+    const result = await createSessionSummary(sessionId, force);
 
     if ("error" in result) {
-      return reply.status(404).send(result);
+      const status = "status" in result && result.status === 429 ? 429 : 404;
+      return reply.status(status).send(result);
     }
 
     return result;

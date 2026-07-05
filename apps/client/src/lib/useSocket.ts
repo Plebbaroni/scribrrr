@@ -17,6 +17,8 @@ export interface SessionContext {
 
 interface AssembledSegment {
   speaker?: string;
+  speaker_id?: string;
+  speaker_display_id?: number;
   text: string;
   startMs?: number;
   endMs?: number;
@@ -31,6 +33,8 @@ type ServerMessage =
 function toTranscriptSegment(seg: AssembledSegment): TranscriptSegment {
   return {
     speaker: seg.speaker,
+    speaker_id: seg.speaker_id ?? null,
+    speaker_display_id: seg.speaker_display_id ?? null,
     text: seg.text,
     start_time_ms: seg.startMs,
     end_time_ms: seg.endMs,

@@ -1,31 +1,25 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useSessionStore } from "@/lib/store";
 import { useSocket } from "@/lib/useSocket";
 import { useAudioRecorder } from "@/lib/useAudioRecorder";
-import { getSession, getTranscript, summarizeRecent, updateSession } from "@/lib/api";
+import { getSession, getSessionSummary, getSpeakers, getTranscript, summarizeSession, updateSession, updateSpeakerName } from "@/lib/api";
+import type { Speaker } from "@/lib/api";
 import type { Summary } from "@/lib/store";
-
-const SPEAKER_COLORS: Record<number, { bg: string; text: string; label: string }> = {
-  0: { bg: "bg-blue-100", text: "text-blue-900", label: "text-blue-600" },
-  1: { bg: "bg-emerald-100", text: "text-emerald-900", label: "text-emerald-600" },
-  2: { bg: "bg-purple-100", text: "text-purple-900", label: "text-purple-600" },
-  3: { bg: "bg-amber-100", text: "text-amber-900", label: "text-amber-600" },
-};
-
-function getSpeakerStyle(speaker?: string) {
-  const idx = parseInt(speaker?.replace(/\D/g, "") || "0", 10);
-  return SPEAKER_COLORS[idx % Object.keys(SPEAKER_COLORS).length];
-}
+import { SummaryMarkdown } from "@/components/SummaryMarkdown";
+import { AppNavbar } from "@/components/AppNavbar";
+import { findSpeakerId, PauseIcon, PlayIcon, SpeakerLabel } from "@/components/SpeakerLabel";
+import { collectSpeakerNames, getSpeakerStyle, resolveSpeakerDisplayName } from "@/lib/speakerStyles";
 
 export default function SessionPage() {
   const params = useParams<{ id: string }>();
   const sessionId = params.id;
   const router = useRouter();
+  const searchParams = useSearchParams();
 
-  const { title, isRecording, segments, partial, summaries, resetForSession, setTitle, setRecording, setSegments, addSummary } =
+  const { title, isRecording, segments, partial, summaries, resetForSession, setTitle, setRecording, setSegments, setPartial, addSummary } =
     useSessionStore();
 
   const { send } = useSocket(sessionId, undefined, isRecording);
@@ -41,6 +35,7 @@ export default function SessionPage() {
   const [activeSummary, setActiveSummary] = useState<Summary | null>(null);
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [roomId, setRoomId] = useState<string | null>(null);
+  const [speakers, setSpeakers] = useState<Speaker[]>([]);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -49,17 +44,35 @@ export default function SessionPage() {
 
     async function load() {
       try {
-        const [session, transcript] = await Promise.all([
+        const [session, transcript, speakerList] = await Promise.all([
           getSession(sessionId),
           getTranscript(sessionId),
+          getSpeakers(sessionId),
         ]);
         if (cancelled) return;
         resetForSession(session.id, session.title);
         setSegments(transcript);
+        setSpeakers(speakerList);
         if (session.room_id) setRoomId(session.room_id);
         setActiveSummary(null);
         setSummaryOpen(false);
         setSummaryError(null);
+
+        if (searchParams.get("summary") === "open") {
+          try {
+            const result = await getSessionSummary(sessionId);
+            if (cancelled) return;
+            addSummary(result);
+            setActiveSummary(result);
+            setSummaryOpen(true);
+          } catch (e) {
+            if (cancelled) return;
+            console.error(e);
+            setSummaryError(e instanceof Error ? e.message : "Failed to load summary");
+            setSummaryOpen(true);
+          }
+          router.replace(`/session/${sessionId}`);
+        }
       } catch (e) {
         console.error(e);
       }
@@ -69,18 +82,31 @@ export default function SessionPage() {
     return () => {
       cancelled = true;
     };
-  }, [sessionId, resetForSession, setSegments]);
+  }, [sessionId, searchParams, resetForSession, setSegments, addSummary, router]);
+
+  useEffect(() => {
+    if (!sessionId) return;
+    getSpeakers(sessionId).then(setSpeakers).catch(console.error);
+  }, [sessionId, segments.length]);
+
+  useEffect(() => {
+    if (!partial?.speaker || speakers.length === 0) return;
+    const resolved = resolveSpeakerDisplayName(speakers, partial.speaker);
+    if (resolved && resolved !== partial.speaker) {
+      setPartial(resolved, partial.text);
+    }
+  }, [speakers, partial, setPartial]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [segments, partial]);
 
-  async function handleSummarize() {
+  async function handleSummarize(force = false) {
     if (!sessionId || summarizing) return;
     setSummarizing(true);
     setSummaryError(null);
     try {
-      const result = await summarizeRecent(sessionId);
+      const result = await summarizeSession(sessionId, { force });
       addSummary(result);
       setActiveSummary(result);
       setSummaryOpen(true);
@@ -92,14 +118,46 @@ export default function SessionPage() {
     setSummarizing(false);
   }
 
-  function handleBack() {
+  function handleToggleRecording() {
+    setRecording(!isRecording);
+  }
+
+  function handleFinish() {
     setRecording(false);
     if (roomId) router.push(`/rooms/${roomId}`);
     else router.push("/rooms");
   }
 
-  function handleFinish() {
-    handleBack();
+  async function handleRenameSpeaker(speakerId: string, newName: string) {
+    if (!sessionId || !speakerId) return;
+
+    await updateSpeakerName(sessionId, speakerId, newName);
+
+    const speakerList = await getSpeakers(sessionId);
+    setSpeakers(speakerList);
+    setSegments(
+      segments.map((seg) =>
+        seg.speaker_id === speakerId ? { ...seg, speaker: newName } : seg
+      )
+    );
+
+    if (partial?.text) {
+      const partialId = findSpeakerId(speakerList, partial.speaker ?? "");
+      if (partialId === speakerId) {
+        setPartial(newName, partial.text);
+      } else {
+        const resolved = resolveSpeakerDisplayName(speakerList, partial.speaker);
+        if (resolved && resolved !== partial.speaker) {
+          setPartial(resolved, partial.text);
+        }
+      }
+    }
+  }
+
+  function handleBack() {
+    setRecording(false);
+    if (roomId) router.push(`/rooms/${roomId}`);
+    else router.push("/rooms");
   }
 
   function startEditingTitle() {
@@ -135,180 +193,251 @@ export default function SessionPage() {
     setDraftTitle(title);
   }
 
-  // Group consecutive segments by same speaker — all left-aligned
-  const grouped: { speaker: string; texts: string[] }[] = [];
+  const latestSummary = activeSummary ?? summaries[summaries.length - 1] ?? null;
+  const summaryPanelWidth = "w-[36rem] max-w-[55vw]";
+  const showEmpty = segments.length === 0 && !partial;
+  const speakerNames = collectSpeakerNames(segments);
+  const partialSpeaker = partial?.speaker
+    ? resolveSpeakerDisplayName(speakers, partial.speaker) ?? partial.speaker
+    : undefined;
+  const partialSpeakerId = partialSpeaker
+    ? findSpeakerId(speakers, partialSpeaker) ?? findSpeakerId(speakers, partial?.speaker ?? "")
+    : null;
+  const partialDisplayId =
+    speakers.find((s) => s.id === partialSpeakerId)?.display_id ?? null;
+
+  type SpeakerGroup = {
+    groupKey: string;
+    speaker: string;
+    speakerId: string | null;
+    speakerDisplayId: number | null;
+    firstId?: string;
+    texts: string[];
+  };
+
+  const grouped: SpeakerGroup[] = [];
   for (const seg of segments) {
-    const sp = seg.speaker || "Unknown";
+    const speaker = seg.speaker || "Unknown";
+    const groupKey = seg.speaker_id ?? speaker;
     const last = grouped[grouped.length - 1];
-    if (last && last.speaker === sp) {
+    if (last && last.groupKey === groupKey) {
       last.texts.push(seg.text);
+      last.speaker = speaker;
     } else {
-      grouped.push({ speaker: sp, texts: [seg.text] });
+      grouped.push({
+        groupKey,
+        speaker,
+        speakerId: seg.speaker_id ?? null,
+        speakerDisplayId: seg.speaker_display_id ?? null,
+        firstId: seg.id,
+        texts: [seg.text],
+      });
     }
   }
 
-  const latestSummary = activeSummary ?? summaries[summaries.length - 1] ?? null;
-
   return (
-    <main className="flex h-screen flex-col overflow-hidden bg-white">
-      <header className="shrink-0 border-b border-gray-200 px-8 py-5 pb-6 mb-4">
-        <h1 className="text-2xl font-bold tracking-tight text-gray-900">Scribrrr</h1>
-      </header>
+    <main className="flex h-screen flex-col overflow-hidden bg-bg font-sans font-normal text-[#0A0A0A]">
+      <AppNavbar />
 
-      <div className="shrink-0 flex items-center gap-3 px-8 pb-4">
-        <button
-          onClick={handleBack}
-          className="shrink-0 text-gray-400 hover:text-gray-600 text-lg"
-          aria-label="Back"
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          <div className="shrink-0 flex items-center justify-between gap-4 bg-bg px-8 py-4">
+            <div className="flex min-w-0 flex-1 items-center gap-3">
+              <button
+                onClick={handleBack}
+                className="shrink-0 text-lg text-[#737373] transition-colors duration-150 hover:text-[#0A0A0A]"
+                aria-label="Back"
+              >
+                ←
+              </button>
+              {editingTitle ? (
+                <input
+                  ref={titleInputRef}
+                  value={draftTitle}
+                  onChange={(e) => setDraftTitle(e.target.value)}
+                  onBlur={saveTitle}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void saveTitle();
+                    }
+                    if (e.key === "Escape") {
+                      e.preventDefault();
+                      cancelEditingTitle();
+                    }
+                  }}
+                  disabled={savingTitle}
+                  className="min-w-0 flex-1 max-w-lg rounded-lg border border-border bg-white px-3 py-2 text-xl font-semibold text-[#0A0A0A] focus:border-[#0A0A0A] focus:outline-none"
+                />
+              ) : (
+                <div className="group flex min-w-0 items-center gap-2">
+                  <span className="truncate text-xl font-semibold text-[#0A0A0A]">
+                    {title || "New Session"}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={startEditingTitle}
+                    className="shrink-0 rounded-md border border-border bg-white px-2.5 py-1 text-xs text-[#737373] opacity-0 transition-opacity duration-150 group-hover:opacity-100 hover:text-[#0A0A0A]"
+                  >
+                    Edit
+                  </button>
+                </div>
+              )}
+            </div>
+            {!summaryOpen && (
+              <button
+                onClick={() => void handleSummarize()}
+                disabled={summarizing || segments.length === 0}
+                className="shrink-0 rounded-lg border border-border bg-white px-5 py-2 text-sm text-[#0A0A0A] transition-colors duration-150 hover:bg-bg disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {summarizing ? "Summarizing…" : "Summarize"}
+              </button>
+            )}
+          </div>
+
+          <div ref={scrollRef} className="hide-scrollbar min-h-0 flex-1 overflow-y-auto py-6 pb-8 pl-8 pr-6 space-y-8">
+            {showEmpty && !isRecording && (
+              <EmptyState message="Press play to begin transcribing" />
+            )}
+
+            {showEmpty && isRecording && (
+              <EmptyState message="Listening…" recording />
+            )}
+
+            {grouped.map((group, i) => {
+              const style = getSpeakerStyle(group.speaker, group.speakerDisplayId);
+              const speakerId =
+                group.speakerId ??
+                findSpeakerId(speakers, group.speaker) ??
+                null;
+
+              return (
+                <div key={group.firstId ?? `${group.groupKey}-${i}`} className="flex max-w-[72%] flex-col items-start">
+                  <SpeakerLabel
+                    name={group.speaker}
+                    speakerId={speakerId}
+                    displayId={group.speakerDisplayId}
+                    onRename={handleRenameSpeaker}
+                  />
+                  <div className={`rounded-lg px-4 py-3 ${style.card}`}>
+                    <p className="text-sm leading-relaxed text-[#0A0A0A]">{group.texts.join(" ")}</p>
+                  </div>
+                </div>
+              );
+            })}
+
+            {partial?.text && (
+              <div className="flex max-w-[72%] flex-col items-start opacity-80">
+                {partialSpeaker && (
+                  <SpeakerLabel
+                    name={partialSpeaker}
+                    speakerId={partialSpeakerId}
+                    displayId={partialDisplayId}
+                    onRename={handleRenameSpeaker}
+                  />
+                )}
+                <div className={`rounded-lg px-4 py-3 ${getSpeakerStyle(partialSpeaker, partialDisplayId).card}`}>
+                  <p className="text-sm leading-relaxed text-[#737373]">{partial.text}</p>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <aside
+          className={`shrink-0 overflow-hidden transition-[width] duration-300 ease-out ${
+            summaryOpen ? summaryPanelWidth : "w-0"
+          }`}
         >
-          ←
-        </button>
-        {editingTitle ? (
-          <input
-            ref={titleInputRef}
-            value={draftTitle}
-            onChange={(e) => setDraftTitle(e.target.value)}
-            onBlur={saveTitle}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                void saveTitle();
-              }
-              if (e.key === "Escape") {
-                e.preventDefault();
-                cancelEditingTitle();
-              }
-            }}
-            disabled={savingTitle}
-            className="min-w-0 flex-1 max-w-lg rounded-lg border border-gray-300 px-3 py-2 text-xl font-semibold text-gray-900 focus:border-gray-400 focus:outline-none"
-          />
-        ) : (
-          <button
-            type="button"
-            onClick={startEditingTitle}
-            className="min-w-0 text-left text-xl font-semibold text-gray-700 hover:text-gray-900"
-            title="Click to rename"
-          >
-            {title || "New Session"}
-          </button>
-        )}
-      </div>
-
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto py-4 pb-6 space-y-5 mx-[10%]">
-        {segments.length === 0 && !isRecording && !partial && (
-          <div className="flex h-full items-center justify-center">
-            <p className="text-sm text-gray-400">Press Start to begin transcribing</p>
-          </div>
-        )}
-
-        {segments.length === 0 && isRecording && !partial && (
-          <div className="flex h-full items-center justify-center">
-            <p className="text-sm text-gray-400">Listening…</p>
-          </div>
-        )}
-
-        {grouped.map((group, gi) => {
-          const style = getSpeakerStyle(group.speaker);
-          return (
-            <div key={gi} className="flex flex-col items-start max-w-[85%]">
-              <span className={`mb-1 text-xs font-semibold ${style.label}`}>
-                {group.speaker}
-              </span>
-              <div className={`rounded-2xl border border-gray-200 px-5 py-3 ${style.bg}`}>
-                {group.texts.map((text, ti) => (
-                  <p key={ti} className={`text-sm leading-relaxed ${style.text}`}>
-                    {text}
-                  </p>
-                ))}
+          <div className={`app-surface flex h-full flex-col border-l ${summaryPanelWidth}`}>
+            <div className="flex shrink-0 items-center justify-between border-b border-border px-5 py-4">
+              <h2 className="text-lg font-normal text-[#0A0A0A]">Summary</h2>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => void handleSummarize(true)}
+                  disabled={summarizing || segments.length === 0}
+                  className="rounded-lg border border-border bg-white px-3 py-1.5 text-sm text-[#0A0A0A] transition-colors duration-150 hover:bg-bg disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {summarizing ? "Regenerating…" : "Retry"}
+                </button>
+                <button
+                  onClick={() => setSummaryOpen(false)}
+                  className="px-1 text-[#737373] transition-colors duration-150 hover:text-[#0A0A0A]"
+                  aria-label="Close summary"
+                >
+                  ✕
+                </button>
               </div>
             </div>
-          );
-        })}
+            <div className="hide-scrollbar min-h-0 flex-1 overflow-y-auto px-5 py-4">
+              {summaryError ? (
+                <p className="text-sm text-red-600">{summaryError}</p>
+              ) : latestSummary?.summary ? (
+                <SummaryMarkdown content={latestSummary.summary} speakers={speakerNames} />
+              ) : (
+                <p className="text-sm text-[#737373]">No summary available.</p>
+              )}
 
-        {partial?.text && (
-          <div className="flex flex-col items-start max-w-[85%] opacity-60">
-            {partial.speaker && (
-              <span className="mb-1 text-xs font-semibold text-gray-500">
-                {partial.speaker}
-              </span>
-            )}
-            <div className="rounded-2xl border border-dashed border-gray-300 bg-gray-50 px-5 py-3">
-              <p className="text-sm leading-relaxed text-gray-700">{partial.text}</p>
+              {!summaryError && latestSummary && (
+                <>
+                  <SummaryList label="Decisions" items={latestSummary.decisions} />
+                  <SummaryList label="Action Items" items={latestSummary.action_items} />
+                  <SummaryList label="Open Questions" items={latestSummary.open_questions} />
+                  <SummaryList label="Risks" items={latestSummary.risks_or_blockers} />
+                </>
+              )}
             </div>
           </div>
-        )}
+        </aside>
       </div>
 
-      <footer className="shrink-0 border-t border-gray-200 bg-white px-8 py-4">
-        <div className="flex items-center justify-between gap-4">
+      <footer className="app-surface shrink-0 border-t px-8 py-5">
+        <div className="mx-auto flex max-w-md items-center justify-between gap-4">
           <button
             onClick={handleFinish}
-            className="rounded-xl border border-gray-300 bg-white px-6 py-2.5 text-sm font-medium text-gray-800 shadow-sm hover:bg-gray-50"
+            className="rounded-full bg-text px-7 py-2.5 text-sm font-medium text-surface shadow-sm transition-opacity duration-150 hover:opacity-90"
           >
             Finish
           </button>
 
           <button
-            onClick={() => setRecording(!isRecording)}
-            className={`rounded-xl border px-8 py-2.5 text-sm font-medium shadow-sm transition-colors ${
-              isRecording
-                ? "border-red-300 bg-red-50 text-red-700 hover:bg-red-100"
-                : "border-gray-300 bg-white text-gray-800 hover:bg-gray-50"
-            }`}
+            onClick={handleToggleRecording}
+            aria-label={isRecording ? "Pause" : "Play"}
+            className="flex h-12 w-12 items-center justify-center rounded-full border border-border bg-bg text-muted transition-colors duration-150 hover:bg-surface hover:text-text"
           >
-            {isRecording ? "Pause" : "Start"}
+            {isRecording ? <PauseIcon /> : <PlayIcon />}
           </button>
 
-          <button
-            onClick={handleSummarize}
-            disabled={summarizing || segments.length === 0}
-            className="rounded-xl border border-gray-300 bg-white px-6 py-2.5 text-sm font-medium text-gray-800 shadow-sm hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {summarizing ? "Summarizing…" : "Summarize"}
-          </button>
+          <div className="w-[72px]" aria-hidden />
         </div>
       </footer>
-
-      {summaryOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-          onClick={() => setSummaryOpen(false)}
-        >
-          <div
-            className="max-h-[80vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 className="text-lg font-semibold text-gray-900">Summary</h2>
-
-            {summaryError ? (
-              <p className="mt-3 text-sm text-red-600">{summaryError}</p>
-            ) : latestSummary?.summary ? (
-              <pre className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-gray-800 font-sans">
-                {latestSummary.summary}
-              </pre>
-            ) : (
-              <p className="mt-3 text-sm text-gray-500">No summary available.</p>
-            )}
-
-            {!summaryError && latestSummary && (
-              <>
-                <SummaryList label="Decisions" items={latestSummary.decisions} />
-                <SummaryList label="Action Items" items={latestSummary.action_items} />
-                <SummaryList label="Open Questions" items={latestSummary.open_questions} />
-                <SummaryList label="Risks" items={latestSummary.risks_or_blockers} />
-              </>
-            )}
-
-            <button
-              onClick={() => setSummaryOpen(false)}
-              className="mt-6 w-full rounded-lg bg-indigo-600 py-2 text-sm font-medium text-white hover:bg-indigo-500"
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      )}
     </main>
+  );
+}
+
+function EmptyState({ message, recording = false }: { message: string; recording?: boolean }) {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-4">
+      {recording && <WaveformBars large />}
+      <p className="text-sm text-[#737373]">{message}</p>
+    </div>
+  );
+}
+
+function WaveformBars({ large = false }: { large?: boolean }) {
+  const heights = large ? [0.35, 0.65, 1, 0.5, 0.8, 0.45, 0.7] : [0.4, 0.75, 1, 0.55, 0.85];
+  const barH = large ? "h-8" : "h-4";
+
+  return (
+    <div className={`flex ${barH} items-end gap-0.5`} aria-hidden>
+      {heights.map((h, i) => (
+        <span
+          key={i}
+          className="w-0.5 animate-waveform rounded-full bg-[#16A34A]"
+          style={{ height: `${h * 100}%`, animationDelay: `${i * 0.12}s` }}
+        />
+      ))}
+    </div>
   );
 }
 
@@ -316,8 +445,8 @@ function SummaryList({ label, items }: { label: string; items?: string[] }) {
   if (!items || items.length === 0) return null;
   return (
     <div className="mt-4">
-      <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500">{label}</h4>
-      <ul className="mt-1 list-disc list-inside text-sm text-gray-700 space-y-0.5">
+      <h4 className="text-xs font-normal uppercase tracking-wide text-[#737373]">{label}</h4>
+      <ul className="mt-1 list-inside list-disc space-y-0.5 text-sm font-normal text-[#0A0A0A]">
         {items.map((item, i) => <li key={i}>{item}</li>)}
       </ul>
     </div>

@@ -94,9 +94,10 @@ export default async function sessionRoutes(fastify: FastifyInstance) {
 
     const { data, error } = await supabase
       .from("messages")
-      .select("id, text, start_time_ms, end_time_ms, confidence, created_at, speakers ( name, display_id )")
+      .select("id, text, start_time_ms, end_time_ms, confidence, created_at, speakers ( id, name, display_id )")
       .eq("session_id", sessionId)
-      .order("start_time_ms", { ascending: true });
+      .order("start_time_ms", { ascending: true, nullsFirst: false })
+      .order("created_at", { ascending: true });
 
     if (error) return reply.status(500).send({ error: error.message });
 
@@ -108,6 +109,8 @@ export default async function sessionRoutes(fastify: FastifyInstance) {
       confidence: row.confidence,
       created_at: row.created_at,
       speaker: row.speakers?.name ?? `Speaker ${row.speakers?.display_id ?? "?"}`,
+      speaker_id: row.speakers?.id ?? null,
+      speaker_display_id: row.speakers?.display_id ?? null,
     }));
 
     return segments;

@@ -133,7 +133,8 @@ export default async function pdfRoutes(fastify: FastifyInstance) {
       .from("messages")
       .select("id, speaker_id, text, start_time_ms, end_time_ms, created_at")
       .eq("session_id", sessionId)
-      .order("start_time_ms", { ascending: true });
+      .order("start_time_ms", { ascending: true, nullsFirst: false })
+      .order("created_at", { ascending: true });
 
     if (messagesError) {
       throw new Error(`Failed to fetch messages: ${messagesError.message}`);
