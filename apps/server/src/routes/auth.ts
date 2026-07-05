@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
-import { db } from "../supabase.js";
+import { supabase } from "../supabase.js";
+import { getUserFromRequest } from "../lib/auth.js";
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_OAUTH_CLIENT_ID!;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_OAUTH_CLIENT_SECRET!;
@@ -8,7 +9,6 @@ const BACKEND_URL = `http://localhost:${process.env.PORT ?? 3001}`;
 const REDIRECT_URI = `${BACKEND_URL}/auth/google/callback`;
 
 export default async function authRoutes(fastify: FastifyInstance) {
-
   // Step 1: redirect user to Google consent screen
   fastify.get("/auth/google", async (_request, reply) => {
     const params = new URLSearchParams({
@@ -27,7 +27,6 @@ export default async function authRoutes(fastify: FastifyInstance) {
     const { code } = request.query as any;
     if (!code) return reply.status(400).send({ error: "Missing code" });
 
-    // Exchange code for tokens
     const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -39,45 +38,63 @@ export default async function authRoutes(fastify: FastifyInstance) {
         grant_type: "authorization_code",
       }),
     });
-    const tokens = await tokenRes.json() as any;
+    const tokens = (await tokenRes.json()) as any;
 
     if (!tokens.access_token) {
       return reply.status(401).send({ error: "Token exchange failed", details: tokens });
     }
 
-    // Fetch user info
     const userRes = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
       headers: { Authorization: `Bearer ${tokens.access_token}` },
     });
-    const profile = await userRes.json() as any;
+    const profile = (await userRes.json()) as any;
 
-    // Upsert user in memory store
-    let user = db.findOne("users", "google_id", profile.id);
+    // Upsert user by google_id
+    const { data: existingUser, error: findErr } = await supabase
+      .from("users")
+      .select()
+      .eq("google_id", profile.id)
+      .maybeSingle();
+
+    if (findErr) return reply.status(500).send({ error: findErr.message });
+
+    let user = existingUser;
     if (!user) {
-      user = db.insert("users", {
-        id: crypto.randomUUID(),
-        google_id: profile.id,
-        email: profile.email,
-        name: profile.name,
-        picture: profile.picture,
-        created_at: new Date().toISOString(),
-      });
+      const { data: created, error: insErr } = await supabase
+        .from("users")
+        .insert({
+          google_id: profile.id,
+          email: profile.email,
+          name: profile.name,
+          picture: profile.picture,
+        })
+        .select()
+        .single();
+
+      if (insErr) return reply.status(500).send({ error: insErr.message });
+      user = created;
+    } else {
+      // Keep name/picture fresh in case they changed on the Google side.
+      await supabase
+        .from("users")
+        .update({ name: profile.name, picture: profile.picture })
+        .eq("id", user.id);
     }
 
-    // Create a session token
-    const token = crypto.randomUUID();
-    db.insert("auth_sessions", {
-      token,
-      user_id: user.id,
-      created_at: new Date().toISOString(),
-    });
+    const { data: authSession, error: sessErr } = await supabase
+      .from("auth_sessions")
+      .insert({ user_id: user.id })
+      .select("token")
+      .single();
 
-    // Set cookie and redirect to frontend
-    reply.setCookie("session", token, {
+    if (sessErr) return reply.status(500).send({ error: sessErr.message });
+
+    reply.setCookie("session", authSession.token, {
       path: "/",
       httpOnly: true,
       sameSite: "lax",
-      maxAge: 60 * 60 * 24 * 7, // 7 days
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 60 * 60 * 24 * 7, // 7 days -- keep in sync with schema's auth_sessions.expires_at default
     });
 
     return reply.redirect(FRONTEND_URL);
@@ -85,20 +102,17 @@ export default async function authRoutes(fastify: FastifyInstance) {
 
   // Get current user
   fastify.get("/auth/me", async (request, reply) => {
-    const token = request.cookies.session;
-    if (!token) return reply.status(401).send({ error: "Not logged in" });
-
-    const session = db.findOne("auth_sessions", "token", token);
-    if (!session) return reply.status(401).send({ error: "Invalid session" });
-
-    const user = db.findOne("users", "id", session.user_id);
-    if (!user) return reply.status(401).send({ error: "User not found" });
-
-    return { id: user.id, email: user.email, name: user.name, picture: user.picture };
+    const user = await getUserFromRequest(request);
+    if (!user) return reply.status(401).send({ error: "Not logged in" });
+    return user;
   });
 
   // Logout
   fastify.post("/auth/logout", async (request, reply) => {
+    const token = request.cookies?.session;
+    if (token) {
+      await supabase.from("auth_sessions").delete().eq("token", token);
+    }
     reply.clearCookie("session", { path: "/" });
     return { ok: true };
   });
