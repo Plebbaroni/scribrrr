@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Speaker } from "@/lib/api";
 import { getSpeakerStyle } from "@/lib/speakerStyles";
+import { PencilIcon } from "@/components/PencilIcon";
 
 export function findSpeakerId(speakers: Speaker[], label: string): string | null {
   const match = label.match(/Speaker\s*(\d+)/i);
@@ -118,14 +119,15 @@ function EditableSpeakerLabel({
   }
 
   return (
-    <div className="group mb-1.5 flex items-center gap-2">
+    <div className="group mb-1.5 flex items-center gap-1">
       <span className={`text-sm font-medium ${labelClass}`}>{name}</span>
       <button
         type="button"
         onClick={startEditing}
-        className="rounded border border-[#EAEAEA] bg-white px-1.5 py-0.5 text-[10px] text-[#737373] opacity-0 transition-opacity duration-150 group-hover:opacity-100 hover:text-[#0A0A0A]"
+        className="shrink-0 rounded p-1 text-muted opacity-0 transition-opacity duration-150 group-hover:opacity-100 hover:text-text"
+        aria-label="Rename speaker"
       >
-        Edit
+        <PencilIcon />
       </button>
     </div>
   );

@@ -9,6 +9,21 @@
   --color-muted: #737373;
 }
 
+@layer base {
+  button:not(:disabled),
+  a[href],
+  label[for],
+  summary,
+  [role="button"],
+  [role="link"] {
+    cursor: pointer;
+  }
+
+  button:disabled {
+    cursor: not-allowed;
+  }
+}
+
 body {
   background: var(--color-bg);
   color: var(--color-text);

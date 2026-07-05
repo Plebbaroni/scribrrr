@@ -129,11 +129,11 @@ export default function RoomsPage() {
 
       {modalOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 p-4"
+          className="fixed inset-0 z-50 flex cursor-pointer items-center justify-center bg-black/20 p-4"
           onClick={closeModal}
         >
           <div
-            className="app-card w-full max-w-md rounded-2xl p-6"
+            className="app-card w-full max-w-md cursor-default rounded-2xl p-6"
             onClick={(e) => e.stopPropagation()}
           >
             <h2 className="text-lg font-semibold text-[#0A0A0A]">New Room</h2>

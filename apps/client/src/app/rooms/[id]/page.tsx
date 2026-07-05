@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { createSession, getRoom, getRoomSessions, getSessionSummary, summarizeSession, updateSession } from "@/lib/api";
 import { AppNavbar } from "@/components/AppNavbar";
+import { PencilIcon } from "@/components/PencilIcon";
 
 type RoomSession = {
   id: string;
@@ -12,15 +13,6 @@ type RoomSession = {
   created_at: string;
   participants: string[];
 };
-
-function PencilIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-      <path d="M12 20h9" />
-      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
-    </svg>
-  );
-}
 
 function SessionRow({
   session,
@@ -270,11 +262,11 @@ export default function RoomPage() {
 
       {modalOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 p-4"
+          className="fixed inset-0 z-50 flex cursor-pointer items-center justify-center bg-black/20 p-4"
           onClick={closeModal}
         >
           <div
-            className="app-card w-full max-w-md rounded-2xl p-6"
+            className="app-card w-full max-w-md cursor-default rounded-2xl p-6"
             onClick={(e) => e.stopPropagation()}
           >
             <h2 className="text-lg font-semibold text-text">New Session</h2>

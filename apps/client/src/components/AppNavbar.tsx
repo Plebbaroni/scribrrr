@@ -17,7 +17,7 @@ export function AppNavbar() {
       <button
         type="button"
         onClick={() => void handleSignOut()}
-        className="text-sm font-medium text-muted transition-colors hover:text-text"
+        className="rounded-lg border border-border bg-bg px-4 py-2 text-sm font-medium text-text transition-colors hover:bg-surface"
       >
         Sign Out
       </button>

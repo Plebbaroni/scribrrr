@@ -10,6 +10,7 @@ import type { Speaker } from "@/lib/api";
 import type { Summary } from "@/lib/store";
 import { SummaryMarkdown } from "@/components/SummaryMarkdown";
 import { AppNavbar } from "@/components/AppNavbar";
+import { PencilIcon } from "@/components/PencilIcon";
 import { findSpeakerId, PauseIcon, PlayIcon, SpeakerLabel } from "@/components/SpeakerLabel";
 import { collectSpeakerNames, getSpeakerStyle, resolveSpeakerDisplayName } from "@/lib/speakerStyles";
 
@@ -277,9 +278,10 @@ export default function SessionPage() {
                   <button
                     type="button"
                     onClick={startEditingTitle}
-                    className="shrink-0 rounded-md border border-border bg-white px-2.5 py-1 text-xs text-[#737373] opacity-0 transition-opacity duration-150 group-hover:opacity-100 hover:text-[#0A0A0A]"
+                    className="shrink-0 rounded p-1 text-muted opacity-0 transition-opacity duration-150 group-hover:opacity-100 hover:text-text"
+                    aria-label="Rename session"
                   >
-                    Edit
+                    <PencilIcon />
                   </button>
                 </div>
               )}
@@ -392,14 +394,7 @@ export default function SessionPage() {
       </div>
 
       <footer className="app-surface shrink-0 border-t px-8 py-5">
-        <div className="mx-auto flex max-w-md items-center justify-between gap-4">
-          <button
-            onClick={handleFinish}
-            className="rounded-full bg-text px-7 py-2.5 text-sm font-medium text-surface shadow-sm transition-opacity duration-150 hover:opacity-90"
-          >
-            Finish
-          </button>
-
+        <div className="mx-auto flex items-center justify-center gap-3">
           <button
             onClick={handleToggleRecording}
             aria-label={isRecording ? "Pause" : "Play"}
@@ -408,7 +403,12 @@ export default function SessionPage() {
             {isRecording ? <PauseIcon /> : <PlayIcon />}
           </button>
 
-          <div className="w-[72px]" aria-hidden />
+          <button
+            onClick={handleFinish}
+            className="rounded-full bg-text px-7 py-2.5 text-sm font-medium text-surface shadow-sm transition-opacity duration-150 hover:opacity-90"
+          >
+            Finish
+          </button>
         </div>
       </footer>
     </main>
