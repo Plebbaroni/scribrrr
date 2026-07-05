@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { db, supabase } from "../supabase.js";
+import { supabase } from "../supabase.js";
 import {
   summariseMeetingTranscript,
   transcriptRowsToMeetingTranscriptJson,
@@ -43,6 +43,54 @@ type MessageRow = {
 
 const FULL_SESSION_SUMMARY_TYPE = "full_session";
 
+/**
+ * Loads a session's messages (optionally only those created since `sinceIso`)
+ * and resolves each one's speaker name, ready to feed into
+ * transcriptRowsToMeetingTranscriptJson. Shared by the full-session summary
+ * and the "last N minutes" summary, which only differ by this cutoff.
+ */
+async function fetchTranscriptRows(sessionId: string, sinceIso?: string) {
+  let query = supabase
+    .from("messages")
+    .select("id, speaker_id, text, start_time_ms, created_at")
+    .eq("session_id", sessionId)
+    .order("start_time_ms", { ascending: true });
+
+  if (sinceIso) query = query.gte("created_at", sinceIso);
+
+  const { data: messages, error: messagesError } = await query;
+  if (messagesError) {
+    throw new Error(`Failed to fetch messages: ${messagesError.message}`);
+  }
+  if (!messages || messages.length === 0) return [];
+
+  const { data: speakers, error: speakersError } = await supabase
+    .from("speakers")
+    .select("id, name, display_id")
+    .eq("session_id", sessionId);
+
+  if (speakersError) {
+    throw new Error(`Failed to fetch speakers: ${speakersError.message}`);
+  }
+
+  const speakerNames = new Map(
+    (speakers ?? []).map((speaker: any) => [
+      speaker.id,
+      speaker.name ?? `Speaker ${speaker.display_id}`,
+    ])
+  );
+
+  return (messages as MessageRow[])
+    .filter((message) => message.text)
+    .map((message) => ({
+      speaker: message.speaker_id
+        ? speakerNames.get(message.speaker_id) ?? "Unknown"
+        : "Unknown",
+      text: message.text ?? "",
+      created_at: message.created_at,
+    }));
+}
+
 export default async function summaryRoutes(fastify: FastifyInstance) {
   fastify.get("/summaries/example", async () => {
     const transcriptJson = transcriptRowsToMeetingTranscriptJson(
@@ -75,17 +123,9 @@ export default async function summaryRoutes(fastify: FastifyInstance) {
   }
 
   async function createSessionSummary(sessionId: string) {
-    const { data: messages, error: messagesError } = await supabase
-      .from("messages")
-      .select("id, speaker_id, text, start_time_ms, created_at")
-      .eq("session_id", sessionId)
-      .order("start_time_ms", { ascending: true });
+    const transcriptRows = await fetchTranscriptRows(sessionId);
 
-    if (messagesError) {
-      throw new Error(`Failed to fetch messages: ${messagesError.message}`);
-    }
-
-    if (!messages || messages.length === 0) {
+    if (transcriptRows.length === 0) {
       const { data: session, error: sessionError } = await supabase
         .from("sessions")
         .select("id, session_name, room_id")
@@ -104,32 +144,6 @@ export default async function summaryRoutes(fastify: FastifyInstance) {
         },
       };
     }
-
-    const { data: speakers, error: speakersError } = await supabase
-      .from("speakers")
-      .select("id, name, display_id")
-      .eq("session_id", sessionId);
-
-    if (speakersError) {
-      throw new Error(`Failed to fetch speakers: ${speakersError.message}`);
-    }
-
-    const speakerNames = new Map(
-      (speakers ?? []).map((speaker: any) => [
-        speaker.id,
-        speaker.name ?? `Speaker ${speaker.display_id}`,
-      ])
-    );
-
-    const transcriptRows = (messages as MessageRow[])
-      .filter((message) => message.text)
-      .map((message) => ({
-        speaker: message.speaker_id
-          ? speakerNames.get(message.speaker_id) ?? "Unknown"
-          : "Unknown",
-        text: message.text ?? "",
-        created_at: message.created_at,
-      }));
 
     const transcriptJson = transcriptRowsToMeetingTranscriptJson(sessionId, transcriptRows);
     const summaryText = await summariseMeetingTranscript(transcriptJson);
@@ -218,25 +232,29 @@ export default async function summaryRoutes(fastify: FastifyInstance) {
     const { sessionId } = request.params as any;
     const cutoff = new Date(Date.now() - 2 * 60 * 1000).toISOString();
 
-    const segments = db.find("transcript_segments", "session_id", sessionId)
-      .filter((s: any) => s.created_at >= cutoff)
-      .sort((a: any, b: any) => (a.start_time_ms || 0) - (b.start_time_ms || 0));
+    const transcriptRows = await fetchTranscriptRows(sessionId, cutoff);
 
-    if (segments.length === 0) {
+    if (transcriptRows.length === 0) {
       return reply.status(400).send({ error: "No recent transcript segments" });
     }
 
-    const transcriptJson = transcriptRowsToMeetingTranscriptJson(sessionId, segments);
-
+    const transcriptJson = transcriptRowsToMeetingTranscriptJson(sessionId, transcriptRows);
     const summaryText = await summariseMeetingTranscript(transcriptJson);
 
-    const summary = db.insert("summaries", {
-      id: crypto.randomUUID(),
-      session_id: sessionId,
-      summary_type: "recent_2min",
-      content: { summary: summaryText },
-      created_at: new Date().toISOString(),
-    });
+    const { data: summary, error: summaryError } = await supabase
+      .from("summaries")
+      .insert({
+        session_id: sessionId,
+        summary_type: "recent_2min",
+        content: { summary: summaryText },
+        created_at: new Date().toISOString(),
+      })
+      .select()
+      .single();
+
+    if (summaryError) {
+      return reply.status(500).send({ error: summaryError.message });
+    }
 
     return summary;
   });
