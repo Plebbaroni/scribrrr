@@ -1,117 +1,126 @@
 import type { FastifyInstance } from "fastify";
-import { createClient as createDeepgramClient } from "@deepgram/sdk";
-import { db } from "../supabase.js";
+import type { WebSocket } from "ws";
+import {
+  createSonioxSession,
+  type AssembledSegment,
+  type SessionContext,
+} from "../services/sonion.js";
+import { insertMessage } from "./messages.js";
 
-const MOCK_PHRASES = [
-  "I think we should focus on the core user experience first.",
-  "Agreed. Let's prioritize the transcription accuracy before adding features.",
-  "What about the latency? Users will notice if there's a big delay.",
-  "We can buffer in 200ms chunks — that should feel real-time enough.",
-  "Has anyone looked into speaker diarization quality?",
-  "Yes, Deepgram's nova-2 model handles it pretty well out of the box.",
-  "Let's make sure we have a fallback if the WebSocket drops.",
-  "Good call. We should also handle reconnection on the frontend.",
-  "I'll take the action item to write the reconnect logic.",
-  "Perfect. Let's also add a mock mode for demos.",
-];
+// Control frames the browser sends as JSON text.
+// Binary frames are treated as raw PCM audio and forwarded as-is.
+type ClientControl =
+  | { type: "start"; context?: SessionContext }
+  | { type: "stop" };
 
-export default async function streamRoutes(fastify: FastifyInstance) {
-  fastify.get("/sessions/:sessionId/stream", { websocket: true }, async (socket, request) => {
-    const { sessionId } = request.params as any;
-    const query = request.query as any;
-    const isMock = query.mock === "true";
+// Messages we send back to the browser as JSON.
+type ServerMessage =
+  | { type: "segment"; segment: AssembledSegment }
+  | { type: "partial"; speaker: string | undefined; text: string }
+  | { type: "error"; code: number; message: string }
+  | { type: "finished" };
 
-    if (isMock) {
-      handleMock(socket, sessionId);
-    } else {
-      handleDeepgram(socket, sessionId);
-    }
-  });
+function timestamp(): string {
+  const now = new Date();
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  return `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
 }
 
-function handleMock(socket: import("ws").WebSocket, sessionId: string) {
-  let idx = 0;
-  let time = 0;
+export default async function streamRoutes(app: FastifyInstance): Promise<void> {
+  // Frontend connects: ws://<server>/stream/<sessionId>
+  app.get("/stream/:sessionId", { websocket: true }, (connection, req) => {
+    const { sessionId } = req.params as { sessionId: string };
+    const browser: WebSocket = connection;
 
-  const interval = setInterval(() => {
-    const speaker = idx % 2 === 0 ? "Speaker 0" : "Speaker 1";
-    const text = MOCK_PHRASES[idx % MOCK_PHRASES.length];
-    const dur = 2000 + Math.random() * 1000;
+    app.log.info({ sessionId }, "browser connected to stream");
 
-    const seg = {
-      id: crypto.randomUUID(),
-      session_id: sessionId,
-      speaker,
-      text,
-      start_time_ms: time,
-      end_time_ms: time + dur,
-      is_final: true,
-      created_at: new Date().toISOString(),
+    const send = (msg: ServerMessage) => {
+      if (browser.readyState === browser.OPEN) {
+        browser.send(JSON.stringify(msg));
+      }
     };
 
-    socket.send(JSON.stringify({ type: "transcript", segment: seg }));
-    db.insert("transcript_segments", seg);
+    // Soniox session is created lazily so the browser can pass context first.
+    let soniox: ReturnType<typeof createSonioxSession> | null = null;
+    // Set once startSoniox has been attempted (successfully or not), so a
+    // missing key / init failure doesn't get retried on every PCM frame.
+    let sonioxStartAttempted = false;
 
-    idx++;
-    time += dur;
-  }, 2000 + Math.random() * 1000);
-
-  socket.on("close", () => clearInterval(interval));
-}
-
-function handleDeepgram(socket: import("ws").WebSocket, sessionId: string) {
-  const key = process.env.DEEPGRAM_API_KEY;
-  if (!key) {
-    socket.send(JSON.stringify({ type: "error", message: "DEEPGRAM_API_KEY not set" }));
-    socket.close();
-    return;
-  }
-
-  const dg = createDeepgramClient(key);
-
-  // TODO: tune encoding, sample_rate, channels to match frontend audio format
-  const conn = dg.listen.live({
-    model: "nova-2",
-    smart_format: true,
-    diarize: true,
-    interim_results: true,
-  });
-
-  conn.on("open", () => console.log(`[stream] Deepgram open for ${sessionId}`));
-
-  conn.on("Results", (data: any) => {
-    const alt = data.channel?.alternatives?.[0];
-    if (!alt?.transcript) return;
-
-    const words = alt.words || [];
-    const speaker = words[0]?.speaker !== undefined ? `Speaker ${words[0].speaker}` : "Unknown";
-
-    const seg = {
-      id: crypto.randomUUID(),
-      session_id: sessionId,
-      speaker,
-      text: alt.transcript,
-      start_time_ms: words[0]?.start ? words[0].start * 1000 : 0,
-      end_time_ms: words.length ? words[words.length - 1].end * 1000 : 0,
-      is_final: data.is_final ?? false,
-      created_at: new Date().toISOString(),
+    const startSoniox = (context?: SessionContext) => {
+      if (sonioxStartAttempted) return;
+      sonioxStartAttempted = true;
+      try {
+        soniox = createSonioxSession(
+          {
+            onSegment: (segment) => {
+              console.log(`[${timestamp()}] Speaker ${segment.speaker ?? "?"}: ${segment.text}`);
+              insertMessage(sessionId, {
+                displayId: Number(segment.speaker ?? 0),
+                text: segment.text,
+                startMs: segment.startMs,
+                endMs: segment.endMs,
+              }).catch((err) => {
+                app.log.error({ sessionId, err: err.message }, "failed to persist segment");
+              });
+              send({ type: "segment", segment });
+            },
+            onPartial: (speaker, text) => send({ type: "partial", speaker, text }),
+            onError: (code, message) => send({ type: "error", code, message }),
+            onFinished: () => send({ type: "finished" }),
+            onClose: () => { },
+          },
+          context,
+        );
+      } catch (err) {
+        send({
+          type: "error",
+          code: -1,
+          message: err instanceof Error ? err.message : "soniox init failed",
+        });
+      }
     };
 
-    socket.send(JSON.stringify({ type: "transcript", segment: seg }));
-    if (seg.is_final) db.insert("transcript_segments", seg);
-  });
+    // Debug signal: confirms PCM is actually reaching the backend, independent
+    // of whether Soniox is reachable/configured.
+    let pcmBytesThisSecond = 0;
+    const pcmLogInterval = setInterval(() => {
+      if (pcmBytesThisSecond > 0) {
+        app.log.info({ sessionId, bytesPerSec: pcmBytesThisSecond }, "PCM received from browser");
+      }
+      pcmBytesThisSecond = 0;
+    }, 1000);
 
-  conn.on("error", (err: any) => {
-    console.error("[stream] Deepgram error:", err);
-    socket.send(JSON.stringify({ type: "error", message: "Deepgram error" }));
-  });
+    browser.on("message", (raw: Buffer, isBinary: boolean) => {
+      // Binary => raw PCM audio, forward straight to Soniox.
+      if (isBinary) {
+        pcmBytesThisSecond += raw.byteLength;
+        if (!soniox) startSoniox();
+        soniox?.sendAudio(raw);
+        return;
+      }
+      // Text => JSON control message.
+      let ctrl: ClientControl;
+      try {
+        ctrl = JSON.parse(raw.toString()) as ClientControl;
+      } catch {
+        return;
+      }
+      if (ctrl.type === "start") startSoniox(ctrl.context);
+      else if (ctrl.type === "stop") soniox?.finish();
+    });
 
-  socket.on("message", (data: any) => {
-    if (conn.getReadyState() === 1) {
-      const buf = Buffer.isBuffer(data) ? data : Buffer.from(data);
-      conn.send(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer);
-    }
-  });
+    browser.on("close", () => {
+      app.log.info({ sessionId }, "browser disconnected");
+      clearInterval(pcmLogInterval);
+      soniox?.close();
+      soniox = null;
+    });
 
-  socket.on("close", () => conn.requestClose());
+    browser.on("error", (err: Error) => {
+      app.log.error({ sessionId, err: err.message }, "browser socket error");
+      clearInterval(pcmLogInterval);
+      soniox?.close();
+      soniox = null;
+    });
+  });
 }
