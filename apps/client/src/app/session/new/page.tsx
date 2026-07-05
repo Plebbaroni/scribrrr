@@ -8,18 +8,16 @@ export default function NewSessionPage() {
   const router = useRouter();
 
   useEffect(() => {
-    // TODO: Put parameters here for room ur currently in 
-    // and session name input
     createSession().then((session) => {
       router.replace(`/session/${session.id}`);
     });
   }, [router]);
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-white">
+    <main className="flex min-h-screen items-center justify-center bg-bg">
       <div className="flex flex-col items-center gap-3">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-indigo-600 border-t-transparent" />
-        <p className="text-sm text-gray-500">Creating session…</p>
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-border border-t-[#0A0A0A]" />
+        <p className="text-sm text-[#737373]">Creating session…</p>
       </div>
     </main>
   );

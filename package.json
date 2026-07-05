@@ -8,7 +8,8 @@
         "dev:web": "npm run dev --workspace=apps/client",
         "dev:server": "npm run dev --workspace=apps/server",
         "build:web": "npm run build --workspace=apps/client",
-        "build:server": "npm run build --workspace=apps/server"
+        "build:server": "npm run build --workspace=apps/server",
+        "postinstall": "npm run postinstall --workspace=apps/server"
     },
     "dependencies": {
         "ws": "^8.21.0"

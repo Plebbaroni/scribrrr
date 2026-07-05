@@ -57,15 +57,47 @@ export default async function sessionRoutes(fastify: FastifyInstance) {
     return data;
   });
 
+  // Rename a session
+  fastify.put("/sessions/:sessionId", async (request, reply) => {
+    const user = await getUserFromRequest(request);
+    if (!user) return reply.status(401).send({ error: "Not logged in" });
+
+    const { sessionId } = request.params as any;
+    const body = request.body as any;
+    const title = body?.title?.trim();
+    if (!title) return reply.status(400).send({ error: "Title is required" });
+
+    const { data: existing, error: findErr } = await supabase
+      .from("sessions")
+      .select("id")
+      .eq("id", sessionId)
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (findErr) return reply.status(500).send({ error: findErr.message });
+    if (!existing) return reply.status(404).send({ error: "Not found" });
+
+    const { data, error } = await supabase
+      .from("sessions")
+      .update({ session_name: title })
+      .eq("id", sessionId)
+      .select(SESSION_COLUMNS)
+      .single();
+
+    if (error) return reply.status(500).send({ error: error.message });
+    return data;
+  });
+
   // Get messages from a session ID
   fastify.get("/sessions/:sessionId/transcript", async (request, reply) => {
     const { sessionId } = request.params as any;
 
     const { data, error } = await supabase
       .from("messages")
-      .select("id, text, start_time_ms, end_time_ms, confidence, created_at, speakers ( name, display_id )")
+      .select("id, text, start_time_ms, end_time_ms, confidence, created_at, speakers ( id, name, display_id )")
       .eq("session_id", sessionId)
-      .order("start_time_ms", { ascending: true });
+      .order("start_time_ms", { ascending: true, nullsFirst: false })
+      .order("created_at", { ascending: true });
 
     if (error) return reply.status(500).send({ error: error.message });
 
@@ -77,6 +109,8 @@ export default async function sessionRoutes(fastify: FastifyInstance) {
       confidence: row.confidence,
       created_at: row.created_at,
       speaker: row.speakers?.name ?? `Speaker ${row.speakers?.display_id ?? "?"}`,
+      speaker_id: row.speakers?.id ?? null,
+      speaker_display_id: row.speakers?.display_id ?? null,
     }));
 
     return segments;

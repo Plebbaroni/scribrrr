@@ -1,7 +1,64 @@
 @import "tailwindcss";
 
+@theme {
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --color-bg: #f2f6fa;
+  --color-surface: #ffffff;
+  --color-border: #e0e0e0;
+  --color-text: #0a0a0a;
+  --color-muted: #737373;
+}
+
+@layer base {
+  button:not(:disabled),
+  a[href],
+  label[for],
+  summary,
+  [role="button"],
+  [role="link"] {
+    cursor: pointer;
+  }
+
+  button:disabled {
+    cursor: not-allowed;
+  }
+}
+
 body {
-  background: #ffffff;
-  color: #171717;
-  font-family: system-ui, -apple-system, sans-serif;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+}
+
+.app-card {
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.04),
+    0 2px 8px rgb(0 0 0 / 0.04);
+}
+
+.app-surface {
+  background-color: var(--color-surface);
+  border-color: var(--color-border);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.03);
+}
+
+.hide-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+@keyframes waveform {
+  0%, 100% { transform: scaleY(0.35); }
+  50% { transform: scaleY(1); }
+}
+
+.animate-waveform {
+  animation: waveform 0.9s ease-in-out infinite;
+  transform-origin: bottom;
 }

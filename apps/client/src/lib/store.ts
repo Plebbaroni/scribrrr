@@ -3,6 +3,8 @@ import { create } from "zustand";
 export interface TranscriptSegment {
   id?: string;
   speaker?: string;
+  speaker_id?: string | null;
+  speaker_display_id?: number | null;
   text: string;
   start_time_ms?: number;
   end_time_ms?: number;
@@ -34,7 +36,10 @@ interface SessionStore {
   summaries: Summary[];
 
   setSession: (id: string, title: string) => void;
+  setTitle: (title: string) => void;
+  resetForSession: (id: string, title: string) => void;
   setRecording: (val: boolean) => void;
+  setSegments: (segments: TranscriptSegment[]) => void;
   addSegment: (seg: TranscriptSegment) => void;
   setPartial: (speaker: string | undefined, text: string) => void;
   addSummary: (s: Summary) => void;
@@ -50,8 +55,19 @@ export const useSessionStore = create<SessionStore>((set) => ({
   summaries: [],
 
   setSession: (id, title) => set({ sessionId: id, title }),
+  setTitle: (title) => set({ title }),
+  resetForSession: (id, title) =>
+    set({
+      sessionId: id,
+      title,
+      isRecording: false,
+      segments: [],
+      partial: null,
+      summaries: [],
+    }),
   setRecording: (val) => set({ isRecording: val }),
   addSegment: (seg) => set((state) => ({ segments: [...state.segments, seg] })),
+  setSegments: (segments) => set({ segments }),
   setPartial: (speaker, text) => set({ partial: text ? { speaker, text } : null }),
   addSummary: (s) => set((state) => ({ summaries: [...state.summaries, s] })),
   clearSegments: () => set({ segments: [], partial: null }),

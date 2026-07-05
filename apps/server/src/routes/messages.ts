@@ -55,7 +55,8 @@ export default async function messageRoutes(fastify: FastifyInstance) {
       .from("messages")
       .select("id, text, start_time_ms, end_time_ms, confidence, created_at, speakers ( id, name, display_id )")
       .eq("session_id", sessionId)
-      .order("start_time_ms", { ascending: true });
+      .order("start_time_ms", { ascending: true, nullsFirst: false })
+      .order("created_at", { ascending: true });
 
     if (error) return reply.status(500).send({ error: error.message });
 
@@ -192,7 +193,8 @@ export default async function messageRoutes(fastify: FastifyInstance) {
       .eq("session_id", sessionId)
       .gte("start_time_ms", body.start_time_ms)
       .lte("start_time_ms", body.end_time_ms)
-      .order("start_time_ms", { ascending: true });
+      .order("start_time_ms", { ascending: true, nullsFirst: false })
+      .order("created_at", { ascending: true });
 
     if (error) return reply.status(500).send({ error: error.message });
 
