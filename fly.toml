@@ -1,30 +1,32 @@
-# fly launch  (from repo root — uses Dockerfile)
-# fly secrets set SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... SONIOX_API_KEY= ...
-# fly deploy
+# fly.toml app configuration file generated for scribrrr on 2026-07-05T22:58:05Z
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
 
-app = "scribrrr-api"
-primary_region = "syd"
+app = 'scribrrr'
+primary_region = 'syd'
 
 [build]
-  dockerfile = "Dockerfile"
+  dockerfile = 'Dockerfile'
 
 [env]
-  PORT = "8080"
-  NODE_ENV = "production"
+  NODE_ENV = 'production'
+  PORT = '8080'
 
 [http_service]
   internal_port = 8080
   force_https = true
-  auto_stop_machines = "off"
+  auto_stop_machines = 'off'
   auto_start_machines = true
   min_machines_running = 1
 
   [http_service.concurrency]
-    type = "connections"
+    type = 'connections'
     hard_limit = 250
     soft_limit = 200
 
 [[vm]]
-  memory = "1gb"
-  cpu_kind = "shared"
+  memory = '1gb'
+  cpu_kind = 'shared'
   cpus = 1
+  memory_mb = 256
