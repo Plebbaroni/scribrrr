@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "./env.js";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import cookie from "@fastify/cookie";
@@ -20,7 +20,7 @@ const GENERATED_DIR = "/tmp/generated";
 async function main() {
   const app = Fastify({ logger: true });
 
-  await app.register(cors, { origin: FRONTEND_URL, credentials: true });
+  await app.register(cors, { origin: true, credentials: true });
   await app.register(cookie);
   await app.register(websocket);
 
