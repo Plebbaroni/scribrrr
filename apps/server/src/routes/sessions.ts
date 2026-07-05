@@ -4,21 +4,36 @@ import { getUserFromRequest } from "../lib/auth.js";
 
 // DB column is "session_name"; API/frontend contract uses "title", so we
 // alias it in the select rather than rename it everywhere downstream.
-export const SESSION_COLUMNS = "id, title:session_name, user_id, created_at, ended_at";
+export const SESSION_COLUMNS = "id, title:session_name, user_id, room_id, created_at, ended_at";
 
 export default async function sessionRoutes(fastify: FastifyInstance) {
-  // Create a new session
+  // Create a new session. room_id is optional (no room-picker UI yet) but,
+  // when given, must belong to the current user.
   fastify.post("/sessions", async (request, reply) => {
     const user = await getUserFromRequest(request);
     if (!user) return reply.status(401).send({ error: "Not logged in" });
 
     const body = request.body as any;
+    const roomId = body?.room_id as string | undefined;
+
+    if (roomId) {
+      const { data: room, error: roomErr } = await supabase
+        .from("rooms")
+        .select("id")
+        .eq("id", roomId)
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (roomErr) return reply.status(500).send({ error: roomErr.message });
+      if (!room) return reply.status(404).send({ error: "Room not found" });
+    }
 
     const { data, error } = await supabase
       .from("sessions")
       .insert({
         session_name: body?.title || "Untitled Session",
         user_id: user.id,
+        room_id: roomId ?? null,
       })
       .select(SESSION_COLUMNS)
       .single();
