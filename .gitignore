@@ -3,7 +3,5 @@ node_modules
 dist
 .env
 .env.local
-package-lock.json
 *.tsbuildinfo
 /tmp/generated
-package-lock.json
