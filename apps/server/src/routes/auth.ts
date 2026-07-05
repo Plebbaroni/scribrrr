@@ -5,8 +5,9 @@ import { getUserFromRequest } from "../lib/auth.js";
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_OAUTH_CLIENT_ID!;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_OAUTH_CLIENT_SECRET!;
 const FRONTEND_URL = process.env.FRONTEND_URL ?? "http://localhost:3000";
-const BACKEND_URL = `http://localhost:${process.env.PORT ?? 3001}`;
-const REDIRECT_URI = `${BACKEND_URL}/auth/google/callback`;
+const BACKEND_URL =
+  process.env.BACKEND_URL ?? `http://localhost:${process.env.PORT ?? 3001}`;
+const REDIRECT_URI = `${BACKEND_URL.replace(/\/$/, "")}/auth/google/callback`;
 
 export default async function authRoutes(fastify: FastifyInstance) {
   // Step 1: redirect user to Google consent screen
