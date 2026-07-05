@@ -51,8 +51,6 @@ export default async function summaryRoutes(fastify: FastifyInstance) {
     );
     const summary = await summariseMeetingTranscript(transcriptJson);
 
-    // console.log("Gemini example summary:\n", summary);
-
     return {
       transcript: transcriptJson,
       summary,
@@ -135,8 +133,6 @@ export default async function summaryRoutes(fastify: FastifyInstance) {
 
     const transcriptJson = transcriptRowsToMeetingTranscriptJson(sessionId, transcriptRows);
     const summaryText = await summariseMeetingTranscript(transcriptJson);
-
-    // console.log("Gemini session summary:\n", summaryText);
 
     const { data: existingSummary, error: existingSummaryError } = await supabase
       .from("summaries")
@@ -233,8 +229,6 @@ export default async function summaryRoutes(fastify: FastifyInstance) {
     const transcriptJson = transcriptRowsToMeetingTranscriptJson(sessionId, segments);
 
     const summaryText = await summariseMeetingTranscript(transcriptJson);
-
-    // console.log("Gemini recent summary:\n", summaryText);
 
     const summary = db.insert("summaries", {
       id: crypto.randomUUID(),

@@ -77,8 +77,6 @@ function handleDeepgram(socket: import("ws").WebSocket, sessionId: string) {
     interim_results: true,
   });
 
-  conn.on("open", () => console.log(`[stream] Deepgram open for ${sessionId}`));
-
   conn.on("Results", (data: any) => {
     const alt = data.channel?.alternatives?.[0];
     if (!alt?.transcript) return;
