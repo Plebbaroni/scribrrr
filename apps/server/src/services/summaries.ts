@@ -14,8 +14,16 @@ export type MeetingTranscriptJson = {
     speaker: string;
     text: string;
     createdAt: string;
+    displayTime: string;
   }[];
 };
+
+function formatTranscriptTime(createdAt: string) {
+  return new Intl.DateTimeFormat("en", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(createdAt));
+}
 
 export function transcriptRowsToMeetingTranscriptJson(
   meetingId: string,
@@ -23,12 +31,17 @@ export function transcriptRowsToMeetingTranscriptJson(
 ): MeetingTranscriptJson {
   return {
     meetingId,
-    messages: messages.map((message, index) => ({
-      messageNumber: index + 1,
-      speaker: message.speaker ?? "Unknown",
-      text: message.text,
-      createdAt: message.created_at ?? new Date().toISOString(),
-    })),
+    messages: messages.map((message, index) => {
+      const createdAt = message.created_at ?? new Date().toISOString();
+
+      return {
+        messageNumber: index + 1,
+        speaker: message.speaker ?? "Unknown",
+        text: message.text,
+        createdAt,
+        displayTime: formatTranscriptTime(createdAt),
+      };
+    }),
   };
 }
 
@@ -49,7 +62,7 @@ Your job:
 - If the owner is unclear, write "Owner unknown".
 - If the due date is unclear, write "Due date not specified".
 
-Return the answer in this format:
+Return the answer in English using this format, even if the transcript contains mixed languages:
 
 # Meeting Summary
 

@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { db } from "../supabase.js";
+import { db, supabase } from "../supabase.js";
 import {
   summariseMeetingTranscript,
   transcriptRowsToMeetingTranscriptJson,
@@ -33,6 +33,16 @@ const exampleTranscriptRows = [
   },
 ];
 
+type MessageRow = {
+  id: string;
+  speaker_id: string | null;
+  text: string | null;
+  start_time_ms: number | null;
+  created_at: string;
+};
+
+const FULL_SESSION_SUMMARY_TYPE = "full_session";
+
 export default async function summaryRoutes(fastify: FastifyInstance) {
   fastify.get("/summaries/example", async () => {
     const transcriptJson = transcriptRowsToMeetingTranscriptJson(
@@ -47,6 +57,126 @@ export default async function summaryRoutes(fastify: FastifyInstance) {
       transcript: transcriptJson,
       summary,
     };
+  });
+
+  async function createSessionSummary(sessionId: string) {
+    const { data: messages, error: messagesError } = await supabase
+      .from("messages")
+      .select("id, speaker_id, text, start_time_ms, created_at")
+      .eq("session_id", sessionId)
+      .order("start_time_ms", { ascending: true });
+
+    if (messagesError) {
+      throw new Error(`Failed to fetch messages: ${messagesError.message}`);
+    }
+
+    if (!messages || messages.length === 0) {
+      const { data: session, error: sessionError } = await supabase
+        .from("sessions")
+        .select("id, session_name, room_id")
+        .eq("id", sessionId)
+        .maybeSingle();
+
+      return {
+        error: "No messages found for this session",
+        debug: {
+          sessionId,
+          sessionVisible: Boolean(session),
+          session,
+          sessionError: sessionError?.message,
+          possibleCause:
+            "The session/messages may be hidden by Supabase RLS when using NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY. Use SUPABASE_SERVICE_ROLE_KEY on the server for backend summary generation.",
+        },
+      };
+    }
+
+    const { data: speakers, error: speakersError } = await supabase
+      .from("speakers")
+      .select("id, name, display_id")
+      .eq("session_id", sessionId);
+
+    if (speakersError) {
+      throw new Error(`Failed to fetch speakers: ${speakersError.message}`);
+    }
+
+    const speakerNames = new Map(
+      (speakers ?? []).map((speaker: any) => [
+        speaker.id,
+        speaker.name ?? `Speaker ${speaker.display_id}`,
+      ])
+    );
+
+    const transcriptRows = (messages as MessageRow[])
+      .filter((message) => message.text)
+      .map((message) => ({
+        speaker: message.speaker_id
+          ? speakerNames.get(message.speaker_id) ?? "Unknown"
+          : "Unknown",
+        text: message.text ?? "",
+        created_at: message.created_at,
+      }));
+
+    const transcriptJson = transcriptRowsToMeetingTranscriptJson(sessionId, transcriptRows);
+    const summaryText = await summariseMeetingTranscript(transcriptJson);
+
+    console.log("Gemini session summary:\n", summaryText);
+
+    const { data: existingSummary, error: existingSummaryError } = await supabase
+      .from("summaries")
+      .select("id")
+      .eq("session_id", sessionId)
+      .eq("summary_type", FULL_SESSION_SUMMARY_TYPE)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (existingSummaryError) {
+      throw new Error(`Failed to check existing summary: ${existingSummaryError.message}`);
+    }
+
+    const summaryPayload = {
+      session_id: sessionId,
+      summary_type: FULL_SESSION_SUMMARY_TYPE,
+      content: { summary: summaryText },
+      created_at: new Date().toISOString(),
+    };
+
+    const saveQuery = existingSummary
+      ? supabase.from("summaries").update(summaryPayload).eq("id", existingSummary.id)
+      : supabase.from("summaries").insert(summaryPayload);
+
+    const { data: summary, error: summaryError } = await saveQuery.select().single();
+
+    if (summaryError) {
+      throw new Error(`Failed to save summary: ${summaryError.message}`);
+    }
+
+    return {
+      transcript: transcriptJson,
+      summary,
+    };
+  }
+
+  fastify.post("/sessions/:sessionId/summaries", async (request, reply) => {
+    const { sessionId } = request.params as any;
+    const result = await createSessionSummary(sessionId);
+
+    if ("error" in result) {
+      return reply.status(404).send(result);
+    }
+
+    return result;
+  });
+
+  fastify.post("/sessions/:sessionId/summaries/", async (request, reply) => {
+    const { sessionId } = request.params as any;
+    const result = await createSessionSummary(sessionId);
+
+    if ("error" in result) {
+      return reply.status(404).send(result);
+    }
+
+    return result;
   });
 
   fastify.post("/sessions/:sessionId/summaries/recent", async (request, reply) => {
