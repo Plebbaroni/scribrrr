@@ -4,7 +4,7 @@ import { getUserFromRequest } from "../lib/auth.js";
 
 // DB column is "session_name"; API/frontend contract uses "title", so we
 // alias it in the select rather than rename it everywhere downstream.
-const SESSION_COLUMNS = "id, title:session_name, user_id, created_at, ended_at";
+export const SESSION_COLUMNS = "id, title:session_name, user_id, created_at, ended_at";
 
 export default async function sessionRoutes(fastify: FastifyInstance) {
   // Create a new session
