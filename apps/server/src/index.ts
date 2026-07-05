@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "./env.js";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import cookie from "@fastify/cookie";
@@ -20,7 +20,7 @@ const FRONTEND_URL = process.env.FRONTEND_URL ?? "http://localhost:3000";
 const GENERATED_DIR = "/tmp/generated";
 
 async function main() {
-  const app = Fastify({ logger: true });
+  const app = Fastify({ logger: false });
 
   await app.register(cors, { origin: true, credentials: true });
   await app.register(cookie);
@@ -42,7 +42,6 @@ async function main() {
   await app.register(streamRoutes);
 
   await app.listen({ port: PORT, host: "0.0.0.0" });
-  console.log(`🎙️ Scribrrr server listening on http://localhost:${PORT}`);
 }
 
 main().catch((err) => {

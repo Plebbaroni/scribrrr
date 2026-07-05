@@ -1,6 +1,3 @@
-// Backend file that connects Fastify with Supabase
-// ws is to avoid my backend server from not executing...
-
 import "dotenv/config";
 import { createClient } from "@supabase/supabase-js";
 import ws from "ws";

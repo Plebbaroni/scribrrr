@@ -2,6 +2,7 @@
   "name": "@scribrrr/server",
   "version": "0.0.1",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
@@ -13,7 +14,12 @@
     "@fastify/cors": "^10.0.0",
     "@fastify/static": "^8.0.0",
     "@fastify/websocket": "^11.0.0",
+<<<<<<< HEAD
+    "@google/genai": "^2.10.0",
+    "@supabase/supabase-js": "^2.110.0",
+=======
     "@supabase/supabase-js": "^2.45.0",
+>>>>>>> main
     "dotenv": "^16.4.0",
     "fastify": "^5.2.0",
     "openai": "^4.80.0",
