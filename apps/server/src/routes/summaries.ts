@@ -51,13 +51,30 @@ export default async function summaryRoutes(fastify: FastifyInstance) {
     );
     const summary = await summariseMeetingTranscript(transcriptJson);
 
-    console.log("Gemini example summary:\n", summary);
+    // console.log("Gemini example summary:\n", summary);
 
     return {
       transcript: transcriptJson,
       summary,
     };
   });
+
+  async function getStoredSessionSummary(sessionId: string) {
+    const { data: summary, error: summaryError } = await supabase
+      .from("summaries")
+      .select("id, session_id, summary_type, content, created_at")
+      .eq("session_id", sessionId)
+      .eq("summary_type", FULL_SESSION_SUMMARY_TYPE)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (summaryError) {
+      throw new Error(`Failed to fetch stored summary: ${summaryError.message}`);
+    }
+
+    return summary;
+  }
 
   async function createSessionSummary(sessionId: string) {
     const { data: messages, error: messagesError } = await supabase
@@ -119,7 +136,7 @@ export default async function summaryRoutes(fastify: FastifyInstance) {
     const transcriptJson = transcriptRowsToMeetingTranscriptJson(sessionId, transcriptRows);
     const summaryText = await summariseMeetingTranscript(transcriptJson);
 
-    console.log("Gemini session summary:\n", summaryText);
+    // console.log("Gemini session summary:\n", summaryText);
 
     const { data: existingSummary, error: existingSummaryError } = await supabase
       .from("summaries")
@@ -156,6 +173,28 @@ export default async function summaryRoutes(fastify: FastifyInstance) {
       summary,
     };
   }
+
+  fastify.get("/sessions/:sessionId/summaries", async (request, reply) => {
+    const { sessionId } = request.params as any;
+    const summary = await getStoredSessionSummary(sessionId);
+
+    if (!summary) {
+      return reply.status(404).send({ error: "No stored summary found for this session" });
+    }
+
+    return summary;
+  });
+
+  fastify.get("/sessions/:sessionId/summaries/", async (request, reply) => {
+    const { sessionId } = request.params as any;
+    const summary = await getStoredSessionSummary(sessionId);
+
+    if (!summary) {
+      return reply.status(404).send({ error: "No stored summary found for this session" });
+    }
+
+    return summary;
+  });
 
   fastify.post("/sessions/:sessionId/summaries", async (request, reply) => {
     const { sessionId } = request.params as any;
@@ -195,7 +234,7 @@ export default async function summaryRoutes(fastify: FastifyInstance) {
 
     const summaryText = await summariseMeetingTranscript(transcriptJson);
 
-    console.log("Gemini recent summary:\n", summaryText);
+    // console.log("Gemini recent summary:\n", summaryText);
 
     const summary = db.insert("summaries", {
       id: crypto.randomUUID(),
