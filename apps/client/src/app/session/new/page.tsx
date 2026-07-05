@@ -8,6 +8,8 @@ export default function NewSessionPage() {
   const router = useRouter();
 
   useEffect(() => {
+    // TODO: Put parameters here for room ur currently in 
+    // and session name input
     createSession().then((session) => {
       router.replace(`/session/${session.id}`);
     });
