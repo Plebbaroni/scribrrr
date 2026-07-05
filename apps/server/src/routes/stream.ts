@@ -19,6 +19,12 @@ type ServerMessage =
   | { type: "error"; code: number; message: string }
   | { type: "finished" };
 
+function timestamp(): string {
+  const now = new Date();
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  return `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+}
+
 export default async function streamRoutes(app: FastifyInstance): Promise<void> {
   // Frontend connects: ws://<server>/stream/<sessionId>
   app.get("/stream/:sessionId", { websocket: true }, (connection, req) => {
@@ -45,7 +51,10 @@ export default async function streamRoutes(app: FastifyInstance): Promise<void> 
       try {
         soniox = createSonioxSession(
           {
-            onSegment: (segment) => send({ type: "segment", segment }),
+            onSegment: (segment) => {
+              console.log(`[${timestamp()}] Speaker ${segment.speaker ?? "?"}: ${segment.text}`);
+              send({ type: "segment", segment });
+            },
             onPartial: (speaker, text) => send({ type: "partial", speaker, text }),
             onError: (code, message) => send({ type: "error", code, message }),
             onFinished: () => send({ type: "finished" }),
