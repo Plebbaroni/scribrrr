@@ -1,20 +1,28 @@
 import type { FastifyInstance } from "fastify";
 import { supabase } from "../supabase.js";
 import { getUserFromRequest } from "../lib/auth.js";
+import { getFrontendUrl, getGoogleRedirectUri, isProduction } from "../lib/urls.js";
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_OAUTH_CLIENT_ID!;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_OAUTH_CLIENT_SECRET!;
-const FRONTEND_URL = process.env.FRONTEND_URL ?? "http://localhost:3000";
-const BACKEND_URL =
-  process.env.BACKEND_URL ?? `http://localhost:${process.env.PORT ?? 3001}`;
-const REDIRECT_URI = `${BACKEND_URL.replace(/\/$/, "")}/auth/google/callback`;
+
+function sessionCookieOptions() {
+  return {
+    path: "/",
+    httpOnly: true,
+    // Vercel (frontend) and Fly (API) are different sites — Lax blocks credentialed fetches.
+    sameSite: isProduction() ? ("none" as const) : ("lax" as const),
+    secure: isProduction(),
+    maxAge: 60 * 60 * 24 * 7,
+  };
+}
 
 export default async function authRoutes(fastify: FastifyInstance) {
   // Step 1: redirect user to Google consent screen
   fastify.get("/auth/google", async (_request, reply) => {
     const params = new URLSearchParams({
       client_id: GOOGLE_CLIENT_ID,
-      redirect_uri: REDIRECT_URI,
+      redirect_uri: getGoogleRedirectUri(),
       response_type: "code",
       scope: "openid email profile",
       access_type: "offline",
@@ -28,6 +36,8 @@ export default async function authRoutes(fastify: FastifyInstance) {
     const { code } = request.query as any;
     if (!code) return reply.status(400).send({ error: "Missing code" });
 
+    const redirectUri = getGoogleRedirectUri();
+
     const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -35,7 +45,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
         code,
         client_id: GOOGLE_CLIENT_ID,
         client_secret: GOOGLE_CLIENT_SECRET,
-        redirect_uri: REDIRECT_URI,
+        redirect_uri: redirectUri,
         grant_type: "authorization_code",
       }),
     });
@@ -75,7 +85,6 @@ export default async function authRoutes(fastify: FastifyInstance) {
       if (insErr) return reply.status(500).send({ error: insErr.message });
       user = created;
     } else {
-      // Keep name/picture fresh in case they changed on the Google side.
       await supabase
         .from("users")
         .update({ name: profile.name, picture: profile.picture })
@@ -90,31 +99,23 @@ export default async function authRoutes(fastify: FastifyInstance) {
 
     if (sessErr) return reply.status(500).send({ error: sessErr.message });
 
-    reply.setCookie("session", authSession.token, {
-      path: "/",
-      httpOnly: true,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-      maxAge: 60 * 60 * 24 * 7, // 7 days -- keep in sync with schema's auth_sessions.expires_at default
-    });
+    reply.setCookie("session", authSession.token, sessionCookieOptions());
 
-    return reply.redirect(FRONTEND_URL);
+    return reply.redirect(getFrontendUrl());
   });
 
-  // Get current user
   fastify.get("/auth/me", async (request, reply) => {
     const user = await getUserFromRequest(request);
     if (!user) return reply.status(401).send({ error: "Not logged in" });
     return user;
   });
 
-  // Logout
   fastify.post("/auth/logout", async (request, reply) => {
     const token = request.cookies?.session;
     if (token) {
       await supabase.from("auth_sessions").delete().eq("token", token);
     }
-    reply.clearCookie("session", { path: "/" });
+    reply.clearCookie("session", sessionCookieOptions());
     return { ok: true };
   });
 }

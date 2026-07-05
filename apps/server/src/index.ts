@@ -15,15 +15,19 @@ import summaryRoutes from "./routes/summaries.js";
 import speakerRoutes from "./routes/speakers.js";
 import pdfRoutes from "./routes/pdf.js";
 import streamRoutes from "./routes/stream.js";
+import { getFrontendUrl } from "./lib/urls.js";
 
 const PORT = parseInt(process.env.PORT ?? "3001", 10);
-const FRONTEND_URL = process.env.FRONTEND_URL ?? "http://localhost:3000";
 const GENERATED_DIR = "/tmp/generated";
 
 async function main() {
   const app = Fastify({ logger: false });
+  const frontendUrl = getFrontendUrl();
 
-  await app.register(cors, { origin: true, credentials: true });
+  await app.register(cors, {
+    origin: process.env.NODE_ENV === "production" ? frontendUrl : true,
+    credentials: true,
+  });
   await app.register(cookie);
   await app.register(websocket);
 

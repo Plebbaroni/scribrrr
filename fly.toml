@@ -11,6 +11,8 @@ primary_region = "syd"
 [env]
   PORT = "8080"
   NODE_ENV = "production"
+  FRONTEND_URL = "https://scribrrr.vercel.app"
+  BACKEND_URL = "https://scribrrr.fly.dev"
 
 [http_service]
   internal_port = 8080
