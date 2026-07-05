@@ -53,6 +53,7 @@ export default async function streamRoutes(app: FastifyInstance): Promise<void> 
           {
             onSegment: (segment) => {
               console.log(`[${timestamp()}] Speaker ${segment.speaker ?? "?"}: ${segment.text}`);
+              // TODO: upsert the segment to the database
               send({ type: "segment", segment });
             },
             onPartial: (speaker, text) => send({ type: "partial", speaker, text }),
