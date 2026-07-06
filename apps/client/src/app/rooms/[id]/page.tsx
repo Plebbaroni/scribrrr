@@ -92,33 +92,33 @@ function SessionRow({
               className="min-w-0 flex-1 rounded-lg border border-border bg-surface px-2 py-1 text-lg font-medium text-text focus:border-text focus:outline-none"
             />
           ) : (
-            <>
-              <Link
-                href={`/session/${session.id}`}
-                className="text-lg font-medium text-text transition-colors hover:text-muted"
-              >
-                {session.title}
-              </Link>
-              <button
-                type="button"
-                onClick={(e) => void handleSummarize(e)}
-                disabled={summarizing}
-                className="shrink-0 text-sm text-muted transition-colors hover:text-text disabled:opacity-50"
-              >
-                {summarizing ? "Summarizing…" : "Summarize"}
-              </button>
-            </>
+            <Link
+              href={`/session/${session.id}`}
+              className="text-lg font-medium text-text transition-colors hover:text-muted"
+            >
+              {session.title}
+            </Link>
           )}
         </div>
         {!editing && (
-          <button
-            type="button"
-            onClick={startEditing}
-            className="shrink-0 rounded p-1 text-muted opacity-0 transition-opacity group-hover:opacity-100 hover:text-text"
-            aria-label="Rename session"
-          >
-            <PencilIcon />
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={(e) => void handleSummarize(e)}
+              disabled={summarizing}
+              className="shrink-0 rounded-lg border border-border bg-surface px-3 py-1.5 text-xs font-medium text-text transition-colors hover:bg-bg disabled:opacity-50"
+            >
+              {summarizing ? "Downloading…" : "Download PDF"}
+            </button>
+            <button
+              type="button"
+              onClick={startEditing}
+              className="shrink-0 rounded p-1 text-muted transition-opacity hover:text-text"
+              aria-label="Rename session"
+            >
+              <PencilIcon />
+            </button>
+          </div>
         )}
       </div>
       <Link href={`/session/${session.id}`} className="mt-1 block">
