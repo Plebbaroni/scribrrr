@@ -19,7 +19,7 @@ export function getBackendUrl() {
   if (process.env.NODE_ENV === "production") {
     return "https://scribrrr.fly.dev";
   }
-  return `http://localhost:${process.env.PORT ?? 3001}`;
+  return `http://localhost:${process.env.PORT ?? 8080}`;
 }
 
 export function getGoogleRedirectUri() {

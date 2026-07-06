@@ -21,8 +21,11 @@ const PORT = parseInt(process.env.PORT ?? "8080", 10);
 const GENERATED_DIR = "/tmp/generated";
 
 async function main() {
-  console.log(`Starting Scribrrr API (Node ${process.version}, PORT=${PORT})`);
-  const app = Fastify({ logger: process.env.NODE_ENV === "production" });
+  // Log to stderr — Fly captures this even if stdout is buffered.
+  console.error(`Starting Scribrrr API (Node ${process.version}, PORT=${PORT})`);
+  // Fastify's production logger calls os.networkInterfaces() after listen,
+  // which can crash in Firecracker VMs (process dies before port stays open).
+  const app = Fastify({ logger: false });
   const frontendUrl = getFrontendUrl();
 
   await app.register(cors, {
@@ -63,10 +66,20 @@ async function main() {
   await app.register(streamRoutes);
 
   await app.listen({ port: PORT, host: "0.0.0.0" });
-  console.log(`Scribrrr API listening on 0.0.0.0:${PORT}`);
+  console.error(`Scribrrr API listening on 0.0.0.0:${PORT}`);
 }
 
 main().catch((err) => {
   console.error("Failed to start server:", err);
+  process.exit(1);
+});
+
+process.on("uncaughtException", (err) => {
+  console.error("Uncaught exception:", err);
+  process.exit(1);
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled rejection:", reason);
   process.exit(1);
 });

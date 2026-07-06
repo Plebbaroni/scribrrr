@@ -12,7 +12,8 @@ RUN npm ci --workspace=@scribrrr/server --include=dev
 COPY apps/server/tsconfig.json apps/server/
 COPY apps/server/src apps/server/src
 
-RUN npm run build --workspace=@scribrrr/server
+RUN npm run build --workspace=@scribrrr/server \
+  && npm ci --workspace=@scribrrr/server --omit=dev
 
 FROM node:22-bookworm AS runtime
 
@@ -24,12 +25,13 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=8080
 
-COPY package.json package-lock.json ./
-COPY apps/server/package.json apps/server/
+# Reuse build-stage node_modules — runtime `npm ci` was a separate install tree.
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/package.json ./package.json
+COPY --from=build /app/apps/server/package.json ./apps/server/package.json
 COPY --from=build /app/apps/server/dist ./apps/server/dist
 
-RUN npm ci --workspace=@scribrrr/server --omit=dev \
-  && npx playwright install chromium
+RUN npx playwright install chromium
 
 EXPOSE 8080
 
