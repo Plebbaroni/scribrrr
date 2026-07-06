@@ -109,7 +109,7 @@ function SessionRow({
                 disabled={summarizing}
                 className="shrink-0 text-sm text-muted transition-colors hover:text-text disabled:opacity-50"
               >
-                {summarizing ? "Summarizing…" : "Summarize"}
+                {summarizing ? "Downloading…" : "Download PDF"}
               </button>
             </>
           )}
