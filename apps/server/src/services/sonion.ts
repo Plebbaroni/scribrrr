@@ -27,6 +27,7 @@ interface SonioxConfig {
   audio_format?: AudioFormat;
   sample_rate?: number;
   num_channels?: number;
+  enable_language_detection?: true;
 }
 
 // A single token in a Soniox response.
@@ -177,6 +178,7 @@ function getConfig(
     audio_format: "pcm_s16le",
     sample_rate: 16000,
     num_channels: 1,
+    enable_language_detection: true,
   };
 
   // Attach context only if the caller actually provided something useful.
