@@ -125,6 +125,7 @@ export default function SessionPage() {
 
   function handleFinish() {
     setRecording(false);
+    summarizeSession(sessionId);
     if (roomId) router.push(`/rooms/${roomId}`);
     else router.push("/rooms");
   }
@@ -347,9 +348,8 @@ export default function SessionPage() {
         </div>
 
         <aside
-          className={`shrink-0 overflow-hidden transition-[width] duration-300 ease-out ${
-            summaryOpen ? summaryPanelWidth : "w-0"
-          }`}
+          className={`shrink-0 overflow-hidden transition-[width] duration-300 ease-out ${summaryOpen ? summaryPanelWidth : "w-0"
+            }`}
         >
           <div className={`app-surface flex h-full flex-col border-l ${summaryPanelWidth}`}>
             <div className="flex shrink-0 items-center justify-between border-b border-border px-5 py-4">
