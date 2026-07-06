@@ -1,5 +1,6 @@
 # fly launch  (from repo root — uses Dockerfile)
 # fly secrets set SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... SONIOX_API_KEY= ...
+# Do NOT set PORT as a secret — fly.toml internal_port sets it. A stale PORT=3001 breaks deploy.
 # fly deploy
 
 app = "scribrrr"

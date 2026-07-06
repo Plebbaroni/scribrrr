@@ -1,5 +1,12 @@
+import type { FastifyRequest } from "fastify";
+
 function stripTrailingSlash(url: string) {
   return url.replace(/\/$/, "");
+}
+
+function headerValue(value: string | string[] | undefined): string | undefined {
+  if (typeof value === "string") return value;
+  return value?.[0];
 }
 
 export function getFrontendUrl() {
@@ -22,7 +29,26 @@ export function getBackendUrl() {
   return `http://localhost:${process.env.PORT ?? 8080}`;
 }
 
-export function getGoogleRedirectUri() {
+/**
+ * Must match exactly what's registered in Google Cloud Console.
+ * Prefer the incoming Host (Fly/Vercel proxy) over BACKEND_URL env — stale
+ * secrets like BACKEND_URL=http://localhost:8080 cause redirect_uri_mismatch.
+ */
+export function getGoogleRedirectUri(request?: FastifyRequest) {
+  if (request) {
+    const host = headerValue(request.headers["x-forwarded-host"]) ?? headerValue(request.headers.host);
+    const proto =
+      headerValue(request.headers["x-forwarded-proto"]) ??
+      (request.protocol === "https" ? "https" : "http");
+
+    if (host) {
+      const hostname = host.split(",")[0]?.trim();
+      if (hostname) {
+        return `${stripTrailingSlash(`${proto}://${hostname}`)}/auth/google/callback`;
+      }
+    }
+  }
+
   return `${getBackendUrl()}/auth/google/callback`;
 }
 

@@ -1,14 +1,23 @@
 import type { Summary } from "./store";
 import { getBackendUrl } from "./backendUrl";
+import { clearSessionToken, getSessionToken } from "./session";
+
+function authHeaders(): Record<string, string> {
+  const token = getSessionToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = {
+    ...authHeaders(),
+    ...(options?.headers as Record<string, string>),
+  };
   if (options?.body) headers["Content-Type"] = "application/json";
 
   const res = await fetch(`${getBackendUrl()}${path}`, {
     credentials: "include",
     ...options,
-    headers: { ...headers, ...(options?.headers as Record<string, string>) },
+    headers,
   });
   if (!res.ok) {
     let message = `API error: ${res.status} ${res.statusText}`;
@@ -158,6 +167,7 @@ async function fetchSessionPdf(sessionId: string): Promise<{ blob: Blob; filenam
   const res = await fetch(`${getBackendUrl()}/sessions/${sessionId}/pdf`, {
     method: "POST",
     credentials: "include",
+    headers: authHeaders(),
   });
 
   if (!res.ok) {
@@ -188,6 +198,7 @@ export function getGoogleLoginUrl() {
 }
 
 export function logout() {
+  clearSessionToken();
   return request<{ ok: boolean }>("/auth/logout", { method: "POST" });
 }
 

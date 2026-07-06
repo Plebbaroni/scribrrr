@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { supabase } from "../supabase.js";
-import { getUserFromRequest } from "../lib/auth.js";
+import { getUserFromRequest, readSessionToken } from "../lib/auth.js";
 import { getFrontendUrl, getGoogleRedirectUri, isProduction } from "../lib/urls.js";
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_OAUTH_CLIENT_ID!;
@@ -18,11 +18,18 @@ function sessionCookieOptions() {
 }
 
 export default async function authRoutes(fastify: FastifyInstance) {
+  // See exactly what redirect_uri the server will send (compare to Google Console).
+  fastify.get("/auth/google/config", async (request) => ({
+    redirect_uri: getGoogleRedirectUri(request),
+    backend_url_env: process.env.BACKEND_URL ?? null,
+  }));
+
   // Step 1: redirect user to Google consent screen
-  fastify.get("/auth/google", async (_request, reply) => {
+  fastify.get("/auth/google", async (request, reply) => {
+    const redirectUri = getGoogleRedirectUri(request);
     const params = new URLSearchParams({
       client_id: GOOGLE_CLIENT_ID,
-      redirect_uri: getGoogleRedirectUri(),
+      redirect_uri: redirectUri,
       response_type: "code",
       scope: "openid email profile",
       access_type: "offline",
@@ -36,7 +43,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
     const { code } = request.query as any;
     if (!code) return reply.status(400).send({ error: "Missing code" });
 
-    const redirectUri = getGoogleRedirectUri();
+    const redirectUri = getGoogleRedirectUri(request);
 
     const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
@@ -52,7 +59,16 @@ export default async function authRoutes(fastify: FastifyInstance) {
     const tokens = (await tokenRes.json()) as any;
 
     if (!tokens.access_token) {
-      return reply.status(401).send({ error: "Token exchange failed", details: tokens });
+      console.error("Google token exchange failed", {
+        redirect_uri: redirectUri,
+        error: tokens.error,
+        error_description: tokens.error_description,
+      });
+      return reply.status(401).send({
+        error: "Token exchange failed",
+        redirect_uri: redirectUri,
+        details: tokens,
+      });
     }
 
     const userRes = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
@@ -101,7 +117,10 @@ export default async function authRoutes(fastify: FastifyInstance) {
 
     reply.setCookie("session", authSession.token, sessionCookieOptions());
 
-    return reply.redirect(getFrontendUrl());
+    // Cookie is on fly.dev; frontend is vercel.app — pass token for localStorage.
+    const completeUrl = new URL("/auth/complete", getFrontendUrl());
+    completeUrl.searchParams.set("token", authSession.token);
+    return reply.redirect(completeUrl.toString());
   });
 
   fastify.get("/auth/me", async (request, reply) => {
@@ -111,7 +130,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
   });
 
   fastify.post("/auth/logout", async (request, reply) => {
-    const token = request.cookies?.session;
+    const token = readSessionToken(request);
     if (token) {
       await supabase.from("auth_sessions").delete().eq("token", token);
     }

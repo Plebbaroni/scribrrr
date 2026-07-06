@@ -8,14 +8,23 @@ export interface AuthUser {
   picture: string | null;
 }
 
+export function readSessionToken(request: FastifyRequest): string | null {
+  const cookieToken = request.cookies?.session;
+  if (cookieToken) return cookieToken;
+
+  const authHeader = request.headers.authorization;
+  if (authHeader?.startsWith("Bearer ")) {
+    return authHeader.slice("Bearer ".length).trim() || null;
+  }
+
+  return null;
+}
+
 /**
- * Resolves the logged-in user from the "session" cookie set by
- * routes/auth.ts's Google OAuth callback. Returns null if there's no
- * cookie, the token doesn't exist, or the session has expired -- callers
- * decide whether that's a 401 or just "anonymous".
+ * Resolves the logged-in user from session cookie (same-origin) or Bearer token (Vercel → Fly).
  */
 export async function getUserFromRequest(request: FastifyRequest): Promise<AuthUser | null> {
-  const token = request.cookies?.session;
+  const token = readSessionToken(request);
   if (!token) return null;
 
   const { data: session, error: sessionErr } = await supabase

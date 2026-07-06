@@ -17,7 +17,22 @@ import pdfRoutes from "./routes/pdf.js";
 import streamRoutes from "./routes/stream.js";
 import { getFrontendUrl } from "./lib/urls.js";
 
-const PORT = parseInt(process.env.PORT ?? "8080", 10);
+/** Fly sets PORT from internal_port — a stale `PORT=3001` secret overrides it and breaks routing. */
+function resolvePort() {
+  const fromEnv = parseInt(process.env.PORT ?? "8080", 10);
+  if (process.env.FLY_APP_NAME) {
+    if (fromEnv !== 8080) {
+      console.error(
+        `PORT=${fromEnv} ignored on Fly (proxy expects 8080). ` +
+          `Run: fly secrets unset PORT -a ${process.env.FLY_APP_NAME}`
+      );
+    }
+    return 8080;
+  }
+  return fromEnv;
+}
+
+const PORT = resolvePort();
 const GENERATED_DIR = "/tmp/generated";
 
 async function main() {
